@@ -5,7 +5,6 @@ import type { AuthTokens, UserProfile } from '@fluentops/shared';
 interface AuthState {
   user: UserProfile | null;
   accessToken: string | null;
-  refreshToken: string | null;
 }
 
 function readStoredUser(): UserProfile | null {
@@ -23,7 +22,6 @@ export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
     user: readStoredUser(),
     accessToken: localStorage.getItem('accessToken'),
-    refreshToken: localStorage.getItem('refreshToken'),
   }),
 
   getters: {
@@ -31,19 +29,15 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
-    setTokens(accessToken: string, refreshToken: string) {
+    setAccessToken(accessToken: string) {
       this.accessToken = accessToken;
-      this.refreshToken = refreshToken;
       localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
     },
 
     clearAuth() {
       this.user = null;
       this.accessToken = null;
-      this.refreshToken = null;
       localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
       sessionStorage.removeItem('user');
     },
 
@@ -56,26 +50,20 @@ export const useAuthStore = defineStore('auth', {
         '/auth/login',
         { email, password },
       );
-      this.setTokens(data.accessToken, data.refreshToken);
+      this.setAccessToken(data.accessToken);
       await this.fetchUser();
     },
 
     async refresh() {
-      if (!this.refreshToken) throw new Error('No refresh token');
-      const { data } = await http.post<AuthTokens>(
-        '/auth/refresh',
-        { refreshToken: this.refreshToken },
-      );
-      this.setTokens(data.accessToken, data.refreshToken);
+      const { data } = await http.post<AuthTokens>('/auth/refresh', {});
+      this.setAccessToken(data.accessToken);
     },
 
     async logout() {
-      if (this.refreshToken) {
-        try {
-          await http.post('/auth/logout', { refreshToken: this.refreshToken });
-        } catch {
-          // ignore logout errors
-        }
+      try {
+        await http.post('/auth/logout', {});
+      } catch {
+        // ignore logout errors
       }
       this.clearAuth();
     },

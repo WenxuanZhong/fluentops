@@ -52,7 +52,6 @@ describe('http client', () => {
 
   it('refreshes once and retries concurrent 401 responses with the new token', async () => {
     localStorage.setItem('accessToken', 'access-old');
-    localStorage.setItem('refreshToken', 'refresh-old');
 
     const routerPush = vi.fn();
     vi.doMock('../src/router', () => ({
@@ -61,8 +60,8 @@ describe('http client', () => {
 
     const { http } = await import('../src/lib/http');
 
-    let resolveRefresh: ((value: { data: { accessToken: string; refreshToken: string } }) => void) | null = null;
-    const refreshPromise = new Promise<{ data: { accessToken: string; refreshToken: string } }>((resolve) => {
+    let resolveRefresh: ((value: { data: { accessToken: string } }) => void) | null = null;
+    const refreshPromise = new Promise<{ data: { accessToken: string } }>((resolve) => {
       resolveRefresh = resolve;
     });
     const postSpy = vi.spyOn(axios, 'post').mockReturnValue(refreshPromise as never);
@@ -92,13 +91,13 @@ describe('http client', () => {
 
     expect(postSpy).toHaveBeenCalledWith(
       'http://localhost:3000/api/v1/auth/refresh',
-      { refreshToken: 'refresh-old' },
+      {},
+      { withCredentials: true },
     );
 
     resolveRefresh?.({
       data: {
         accessToken: 'access-new',
-        refreshToken: 'refresh-new',
       },
     });
 
@@ -108,13 +107,11 @@ describe('http client', () => {
     expect(responseB.data).toEqual({ ok: true, url: '/resource-b' });
     expect(postSpy).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem('accessToken')).toBe('access-new');
-    expect(localStorage.getItem('refreshToken')).toBe('refresh-new');
     expect(routerPush).not.toHaveBeenCalled();
   });
 
   it('clears tokens and redirects to login when refresh fails', async () => {
     localStorage.setItem('accessToken', 'access-old');
-    localStorage.setItem('refreshToken', 'refresh-old');
 
     const routerPush = vi.fn();
     vi.doMock('../src/router', () => ({
@@ -132,7 +129,6 @@ describe('http client', () => {
     await expect(http.get('/protected', { adapter })).rejects.toThrow('refresh failed');
 
     expect(localStorage.getItem('accessToken')).toBeNull();
-    expect(localStorage.getItem('refreshToken')).toBeNull();
     expect(routerPush).toHaveBeenCalledWith('/login');
   });
 });

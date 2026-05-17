@@ -34,7 +34,6 @@ describe('auth store', () => {
     mockedPost.mockResolvedValueOnce({
       data: {
         accessToken: 'access-1',
-        refreshToken: 'refresh-1',
       },
     } as never);
     mockedGet.mockResolvedValueOnce({ data: user } as never);
@@ -50,35 +49,27 @@ describe('auth store', () => {
     expect(store.isAuthenticated).toBe(true);
     expect(store.user).toEqual(user);
     expect(localStorage.getItem('accessToken')).toBe('access-1');
-    expect(localStorage.getItem('refreshToken')).toBe('refresh-1');
+    expect(localStorage.getItem('refreshToken')).toBeNull();
     expect(sessionStorage.getItem('user')).toBe(JSON.stringify(user));
   });
 
-  it('refreshes tokens from the stored refresh token', async () => {
-    localStorage.setItem('refreshToken', 'refresh-old');
-
+  it('refreshes the access token via cookie (no body refresh token)', async () => {
     mockedPost.mockResolvedValueOnce({
       data: {
         accessToken: 'access-new',
-        refreshToken: 'refresh-new',
       },
     } as never);
 
     const store = useAuthStore();
     await store.refresh();
 
-    expect(mockedPost).toHaveBeenCalledWith('/auth/refresh', {
-      refreshToken: 'refresh-old',
-    });
+    expect(mockedPost).toHaveBeenCalledWith('/auth/refresh', {});
     expect(store.accessToken).toBe('access-new');
-    expect(store.refreshToken).toBe('refresh-new');
     expect(localStorage.getItem('accessToken')).toBe('access-new');
-    expect(localStorage.getItem('refreshToken')).toBe('refresh-new');
   });
 
   it('clears auth state on logout even when the API call fails', async () => {
     localStorage.setItem('accessToken', 'access-1');
-    localStorage.setItem('refreshToken', 'refresh-1');
     sessionStorage.setItem(
       'user',
       JSON.stringify({
@@ -93,13 +84,10 @@ describe('auth store', () => {
     const store = useAuthStore();
     await store.logout();
 
-    expect(mockedPost).toHaveBeenCalledWith('/auth/logout', {
-      refreshToken: 'refresh-1',
-    });
+    expect(mockedPost).toHaveBeenCalledWith('/auth/logout', {});
     expect(store.user).toBeNull();
     expect(store.isAuthenticated).toBe(false);
     expect(localStorage.getItem('accessToken')).toBeNull();
-    expect(localStorage.getItem('refreshToken')).toBeNull();
     expect(sessionStorage.getItem('user')).toBeNull();
   });
 });

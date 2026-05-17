@@ -7,7 +7,11 @@ export type HealthResponse = {
 
 export type AuthTokens = {
   accessToken: string;
-  refreshToken: string;
+};
+
+export type WsTicket = {
+  ticket: string;
+  expiresAt: string;
 };
 
 export type UserProfile = {

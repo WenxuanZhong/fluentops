@@ -4,6 +4,7 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
 
   readonly url: string;
+  readonly protocols: string | string[] | undefined;
   readonly send = vi.fn();
   readonly close = vi.fn();
   readonly OPEN = 1;
@@ -13,8 +14,9 @@ class FakeWebSocket {
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
 
-  constructor(url: string) {
+  constructor(url: string, protocols?: string | string[]) {
     this.url = url;
+    this.protocols = protocols;
     FakeWebSocket.instances.push(this);
   }
 
@@ -45,6 +47,7 @@ describe('useAssessmentRealtime', () => {
         defaults: {
           baseURL: 'http://localhost:3000/api/v1',
         },
+        post: vi.fn(),
       },
     }));
 
@@ -69,11 +72,13 @@ describe('useAssessmentRealtime', () => {
   it('uses the websocket path when realtime messages arrive successfully', async () => {
     localStorage.setItem('accessToken', 'access-1');
 
+    const postMock = vi.fn().mockResolvedValue({ data: { ticket: 'ws-ticket-xyz' } });
     vi.doMock('../src/lib/http', () => ({
       http: {
         defaults: {
           baseURL: 'http://localhost:3000/api/v1',
         },
+        post: postMock,
       },
     }));
 
@@ -94,8 +99,13 @@ describe('useAssessmentRealtime', () => {
       onFallbackPoll,
     });
 
+    await vi.waitFor(() => {
+      expect(FakeWebSocket.instances.length).toBe(1);
+    });
     const socket = FakeWebSocket.instances[0];
-    expect(socket?.url).toBe('ws://localhost:3000/ws/assessments?token=access-1');
+    expect(socket?.url).toBe('ws://localhost:3000/ws/assessments');
+    expect(socket?.protocols).toEqual(['fo-ws.v1', 'ws-ticket-xyz']);
+    expect(postMock).toHaveBeenCalledWith('/auth/ws-ticket', {});
 
     socket.onopen?.();
     expect(socket.send).toHaveBeenCalledWith(
@@ -132,11 +142,13 @@ describe('useAssessmentRealtime', () => {
   it('falls back to SSE when the websocket path errors', async () => {
     localStorage.setItem('accessToken', 'access-1');
 
+    const postMock = vi.fn().mockResolvedValue({ data: { ticket: 'ws-ticket-xyz' } });
     vi.doMock('../src/lib/http', () => ({
       http: {
         defaults: {
           baseURL: 'http://localhost:3000/api/v1',
         },
+        post: postMock,
       },
     }));
 
@@ -184,6 +196,9 @@ describe('useAssessmentRealtime', () => {
       onFallbackPoll,
     });
 
+    await vi.waitFor(() => {
+      expect(FakeWebSocket.instances.length).toBe(1);
+    });
     const socket = FakeWebSocket.instances[0];
     socket.onerror?.();
 

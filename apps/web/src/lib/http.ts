@@ -5,27 +5,26 @@ import { router } from '../router';
 export const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1',
   timeout: 30000,
+  withCredentials: true,
 });
 
 let refreshPromise: Promise<string> | null = null;
 
 async function doRefresh(): Promise<string> {
-  const refreshToken = localStorage.getItem('refreshToken');
-  if (!refreshToken) {
+  const baseURL = http.defaults.baseURL || 'http://localhost:3000/api/v1';
+  try {
+    const { data } = await axios.post<AuthTokens>(
+      `${baseURL}/auth/refresh`,
+      {},
+      { withCredentials: true },
+    );
+    localStorage.setItem('accessToken', data.accessToken);
+    return data.accessToken;
+  } catch (error) {
     localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
     router.push('/login');
-    throw new Error('No refresh token');
+    throw error;
   }
-
-  const { data } = await axios.post<AuthTokens>(
-    `${http.defaults.baseURL}/auth/refresh`,
-    { refreshToken },
-  );
-
-  localStorage.setItem('accessToken', data.accessToken);
-  localStorage.setItem('refreshToken', data.refreshToken);
-  return data.accessToken;
 }
 
 // Request interceptor: attach access token
@@ -62,7 +61,6 @@ http.interceptors.response.use(
       return http(originalRequest);
     } catch (refreshError) {
       localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
       router.push('/login');
       return Promise.reject(refreshError);
     } finally {

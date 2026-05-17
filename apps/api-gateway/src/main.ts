@@ -36,6 +36,7 @@ async function bootstrap() {
   app.enableCors({
     origin: configService.get<string>('CORS_ORIGIN', 'http://localhost:5173'),
     credentials: true,
+    exposedHeaders: ['Set-Cookie'],
   });
 
   if (configService.get<string>('NODE_ENV') !== 'production') {

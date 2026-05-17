@@ -159,8 +159,12 @@ export function useAssessmentRealtime() {
     };
 
     try {
+      const ticket = await fetchWsTicket();
       const wsOrigin = resolveWsOrigin();
-      socket = new WebSocket(`${wsOrigin}/ws/assessments?token=${encodeURIComponent(token)}`);
+      // The browser-native WebSocket has no header API; the only customizable
+      // channel is `Sec-WebSocket-Protocol`. We send a two-element subprotocol
+      // list "fo-ws.v1, <ticket>" and the gateway extracts the second value.
+      socket = new WebSocket(`${wsOrigin}/ws/assessments`, ['fo-ws.v1', ticket]);
     } catch {
       await fallback();
       return;
@@ -239,4 +243,10 @@ function resolveWsOrigin() {
   const baseUrl = http.defaults.baseURL || 'http://localhost:3000/api/v1';
   const origin = baseUrl.replace(/\/api\/v1$/, '');
   return origin.replace(/^http/, 'ws');
+}
+
+async function fetchWsTicket(): Promise<string> {
+  const { data } = await http.post<{ ticket: string }>('/auth/ws-ticket', {});
+  if (!data?.ticket) throw new Error('No ws ticket');
+  return data.ticket;
 }

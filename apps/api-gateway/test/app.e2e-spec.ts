@@ -84,7 +84,17 @@ describe('App (e2e)', () => {
 
   describe('Auth flow: register -> login -> refresh -> me -> logout', () => {
     let accessToken: string;
-    let refreshToken: string;
+    let refreshCookie: string;
+
+    const extractRefreshCookie = (res: Response): string | null => {
+      const setCookie = res.headers['set-cookie'];
+      const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+      for (const raw of cookies) {
+        const match = /fo_refresh=([^;]+)/.exec(raw);
+        if (match) return match[0];
+      }
+      return null;
+    };
 
     it('POST /api/v1/auth/register', async () => {
       const res = await request(app.getHttpServer())
@@ -96,16 +106,18 @@ describe('App (e2e)', () => {
       expect(res.body.email).toBe(userA.email);
     });
 
-    it('POST /api/v1/auth/login', async () => {
+    it('POST /api/v1/auth/login sets refresh cookie + returns accessToken', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
         .send(userA)
         .expect(200);
 
       expect(res.body).toHaveProperty('accessToken');
-      expect(res.body).toHaveProperty('refreshToken');
+      expect(res.body).not.toHaveProperty('refreshToken');
+      const cookie = extractRefreshCookie(res);
+      expect(cookie).not.toBeNull();
       accessToken = res.body.accessToken;
-      refreshToken = res.body.refreshToken;
+      refreshCookie = cookie!;
     });
 
     it('GET /api/v1/me with accessToken', async () => {
@@ -117,17 +129,19 @@ describe('App (e2e)', () => {
       expect(res.body.email).toBe(userA.email);
     });
 
-    it('POST /api/v1/auth/refresh (rotation)', async () => {
+    it('POST /api/v1/auth/refresh (rotation via cookie)', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken })
+        .set('Cookie', refreshCookie)
         .expect(200);
 
       expect(res.body).toHaveProperty('accessToken');
-      expect(res.body).toHaveProperty('refreshToken');
-      expect(res.body.refreshToken).not.toBe(refreshToken);
+      expect(res.body).not.toHaveProperty('refreshToken');
+      const newCookie = extractRefreshCookie(res);
+      expect(newCookie).not.toBeNull();
+      expect(newCookie).not.toBe(refreshCookie);
       accessToken = res.body.accessToken;
-      refreshToken = res.body.refreshToken;
+      refreshCookie = newCookie!;
     });
 
     it('GET /api/v1/me with new accessToken', async () => {
@@ -139,17 +153,17 @@ describe('App (e2e)', () => {
       expect(res.body.email).toBe(userA.email);
     });
 
-    it('POST /api/v1/auth/logout', async () => {
+    it('POST /api/v1/auth/logout clears cookie', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/auth/logout')
-        .send({ refreshToken })
+        .set('Cookie', refreshCookie)
         .expect(204);
     });
 
-    it('POST /api/v1/auth/refresh with revoked token fails', async () => {
+    it('POST /api/v1/auth/refresh with revoked cookie fails', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken })
+        .set('Cookie', refreshCookie)
         .expect(401);
     });
   });
