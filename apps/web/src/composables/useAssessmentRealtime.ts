@@ -8,15 +8,95 @@ type RealtimeCallbacks = {
   onFallbackPoll: () => Promise<void>;
 };
 
-let socket: WebSocket | null = null;
-let abortController: AbortController | null = null;
+function parseSseField(line: string, prefix: string): string | null {
+  if (!line.startsWith(prefix)) return null;
+  const value = line.slice(prefix.length);
+  return value.startsWith(' ') ? value.slice(1) : value;
+}
 
 export function useAssessmentRealtime() {
+  let socket: WebSocket | null = null;
+  let abortController: AbortController | null = null;
+
   function stop() {
     abortController?.abort();
     abortController = null;
     socket?.close();
     socket = null;
+  }
+
+  async function streamViaSse(
+    callbacks: RealtimeCallbacks,
+    token: string,
+    since: number,
+    onAdvance: (id: number) => void = () => {},
+  ) {
+    abortController = new AbortController();
+    const sinceQuery = since >= 0 ? `?since=${since}` : '';
+
+    try {
+      const response = await fetch(
+        `${http.defaults.baseURL}/ai/assess/${callbacks.assessmentId}/stream${sinceQuery}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: abortController.signal,
+        },
+      );
+
+      if (!response.ok || !response.body) {
+        await callbacks.onFallbackPoll();
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split('\n\n');
+        buffer = chunks.pop() || '';
+
+        for (const chunk of chunks) {
+          const lines = chunk.split('\n');
+          let type = '';
+          let data = '';
+          let id = since;
+          for (const line of lines) {
+            const eventValue = parseSseField(line, 'event:');
+            if (eventValue !== null) type = eventValue;
+            const dataValue = parseSseField(line, 'data:');
+            if (dataValue !== null) data = dataValue;
+            const idValue = parseSseField(line, 'id:');
+            if (idValue !== null) {
+              const parsed = Number(idValue);
+              if (Number.isFinite(parsed)) id = parsed;
+            }
+          }
+          if (!data) continue;
+          if (id >= 0) onAdvance(id);
+          let payload: unknown;
+          try {
+            payload = JSON.parse(data);
+          } catch {
+            payload = { message: data };
+          }
+          if (type === 'progress') callbacks.onProgress(payload as { pct?: number; stage?: string }, id);
+          if (type === 'final') callbacks.onFinal(payload, id);
+          if (type === 'error') {
+            const errorPayload =
+              typeof payload === 'object' && payload !== null
+                ? (payload as { message?: string })
+                : { message: String(payload) };
+            callbacks.onError(errorPayload, id);
+          }
+        }
+      }
+    } catch {
+      await callbacks.onFallbackPoll();
+    }
   }
 
   async function stream(callbacks: RealtimeCallbacks) {
@@ -35,8 +115,18 @@ export function useAssessmentRealtime() {
     const fallback = async () => {
       if (fallbackTriggered || completed) return;
       fallbackTriggered = true;
-      socket?.close();
-      await streamViaSse(callbacks, token, lastEventId);
+      if (socket) {
+        // Detach handlers first so the impending close doesn't re-enter fallback
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+        socket.close();
+        socket = null;
+      }
+      await streamViaSse(callbacks, token, lastEventId, (id) => {
+        lastEventId = id;
+      });
     };
 
     const handleEvent = (event: {
@@ -143,61 +233,6 @@ export function useAssessmentRealtime() {
     stream,
     stop,
   };
-}
-
-async function streamViaSse(
-  callbacks: RealtimeCallbacks,
-  token: string,
-  since: number,
-) {
-  abortController = new AbortController();
-  const sinceQuery = since >= 0 ? `?since=${since}` : '';
-
-  try {
-    const response = await fetch(
-      `${http.defaults.baseURL}/ai/assess/${callbacks.assessmentId}/stream${sinceQuery}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: abortController.signal,
-      },
-    );
-
-    if (!response.ok || !response.body) {
-      await callbacks.onFallbackPoll();
-      return;
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split('\n\n');
-      buffer = chunks.pop() || '';
-
-      for (const chunk of chunks) {
-        const lines = chunk.split('\n');
-        let type = '';
-        let data = '';
-        let id = since;
-        for (const line of lines) {
-          if (line.startsWith('event: ')) type = line.slice(7);
-          if (line.startsWith('data: ')) data = line.slice(6);
-          if (line.startsWith('id: ')) id = Number(line.slice(4));
-        }
-        if (!data) continue;
-        const payload = JSON.parse(data) as { message?: string };
-        if (type === 'progress') callbacks.onProgress(payload as { pct?: number; stage?: string }, id);
-        if (type === 'final') callbacks.onFinal(payload, id);
-        if (type === 'error') callbacks.onError(payload, id);
-      }
-    }
-  } catch {
-    await callbacks.onFallbackPoll();
-  }
 }
 
 function resolveWsOrigin() {

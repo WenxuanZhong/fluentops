@@ -10,12 +10,19 @@ export class MinioService implements OnModuleInit {
 
   constructor(private config: ConfigService) {
     this.bucket = this.config.get('MINIO_BUCKET', 'fluentops');
+    const accessKey = this.config.get<string>('MINIO_ACCESS_KEY');
+    const secretKey = this.config.get<string>('MINIO_SECRET_KEY');
+    if (this.config.get<string>('NODE_ENV') === 'production' && (!accessKey || !secretKey)) {
+      throw new Error(
+        'MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be set in production',
+      );
+    }
     this.client = new Minio.Client({
       endPoint: this.config.get('MINIO_ENDPOINT', 'localhost'),
       port: parseInt(this.config.get('MINIO_PORT', '9000'), 10),
       useSSL: this.config.get('MINIO_USE_SSL', 'false') === 'true',
-      accessKey: this.config.get('MINIO_ACCESS_KEY', 'minio'),
-      secretKey: this.config.get('MINIO_SECRET_KEY', 'minio123456'),
+      accessKey: accessKey || 'minio',
+      secretKey: secretKey || 'minio123456',
     });
   }
 

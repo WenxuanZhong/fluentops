@@ -62,7 +62,15 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (!this.client || !this.ready) return null;
     const raw = await this.client.get(key);
     if (!raw) return null;
-    return JSON.parse(raw) as T;
+    try {
+      return JSON.parse(raw) as T;
+    } catch (error) {
+      this.logger.warn(
+        `Discarded corrupt JSON at ${key}: ${error instanceof Error ? error.message : error}`,
+      );
+      await this.client.del(key).catch(() => {});
+      return null;
+    }
   }
 
   async setJson(key: string, value: unknown, ttlSeconds?: number) {

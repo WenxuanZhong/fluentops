@@ -12,6 +12,41 @@ type DeliveryResult = {
   accepted: boolean;
 };
 
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+function escapeHtml(input: string): string {
+  return input.replace(/[&<>"']/g, (char) => HTML_ESCAPE_MAP[char] ?? char);
+}
+
+function renderLinesAsHtml(lines: string[]): string {
+  const parts: string[] = [];
+  let listBuffer: string[] = [];
+  const flushList = () => {
+    if (listBuffer.length === 0) return;
+    parts.push(`<ul>${listBuffer.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`);
+    listBuffer = [];
+  };
+  for (const line of lines) {
+    if (line.startsWith('- ')) {
+      listBuffer.push(line.slice(2));
+      continue;
+    }
+    flushList();
+    if (line.trim() === '') {
+      continue;
+    }
+    parts.push(`<p>${escapeHtml(line)}</p>`);
+  }
+  flushList();
+  return parts.join('');
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
@@ -66,7 +101,7 @@ export class NotificationsService {
       to: assessment.user.email,
       subject,
       text: lines.join('\n'),
-      html: lines.map((line) => `<p>${line}</p>`).join(''),
+      html: renderLinesAsHtml(lines),
     });
   }
 

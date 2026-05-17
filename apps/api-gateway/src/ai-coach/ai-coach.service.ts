@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   MessageEvent,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Observable, timer, from, EMPTY } from 'rxjs';
@@ -22,6 +23,8 @@ const STAGE_PCT: Record<string, [number, number]> = {
 };
 
 const WORKFLOW_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const STREAM_MAX_DURATION_MS = WORKFLOW_TIMEOUT_MS + 30 * 1000;
+const STREAM_STATUS_CHECK_INTERVAL = 5;
 
 @Injectable()
 export class AICoachService {
@@ -81,24 +84,28 @@ export class AICoachService {
     } catch (err) {
       // Ensure status is FAILED regardless of where the error originated — use transaction for atomicity
       try {
-        await this.prisma.$transaction(async (tx) => {
+        const failureEvent = await this.prisma.$transaction(async (tx) => {
           const assessment = await tx.assessment.findUnique({ where: { id: assessmentId } });
-          if (assessment && assessment.status === 'RUNNING') {
-            const count = await tx.assessmentEvent.count({ where: { assessmentId } });
-            await tx.assessmentEvent.create({
-              data: { assessmentId, seq: count, type: 'ERROR', payloadJson: { message: 'Assessment timed out or failed unexpectedly' } },
-            });
-            await tx.assessment.update({ where: { id: assessmentId }, data: { status: 'FAILED' } });
-            this.realtimeService.publish({
-              assessmentId,
-              userId,
-              seq: count,
-              type: 'error',
-              data: { message: 'Assessment timed out or failed unexpectedly' },
-            });
+          if (!assessment || assessment.status !== 'RUNNING') {
+            return null;
           }
+          const count = await tx.assessmentEvent.count({ where: { assessmentId } });
+          await tx.assessmentEvent.create({
+            data: { assessmentId, seq: count, type: 'ERROR', payloadJson: { message: 'Assessment timed out or failed unexpectedly' } },
+          });
+          await tx.assessment.update({ where: { id: assessmentId }, data: { status: 'FAILED' } });
+          return { seq: count };
         });
-        await this.billingService.refundCredit(userId, 'ai_assess_refund', assessmentId);
+        if (failureEvent) {
+          this.realtimeService.publish({
+            assessmentId,
+            userId,
+            seq: failureEvent.seq,
+            type: 'error',
+            data: { message: 'Assessment timed out or failed unexpectedly' },
+          });
+          await this.billingService.refundCredit(userId, 'ai_assess_refund', assessmentId);
+        }
       } catch (txErr) {
         this.logger.error(`Failed to mark assessment ${assessmentId} as FAILED`, txErr instanceof Error ? txErr.stack : txErr);
       }
@@ -286,40 +293,88 @@ export class AICoachService {
     });
   }
 
-  streamEvents(assessmentId: string, userId: string, since = -1): Observable<MessageEvent> {
+  async ensureOwnership(assessmentId: string, userId: string) {
+    const owned = await this.prisma.assessment.findFirst({
+      where: { id: assessmentId, userId },
+      select: { id: true },
+    });
+    if (!owned) {
+      throw new NotFoundException('Assessment not found');
+    }
+  }
+
+  streamEvents(assessmentId: string, since = -1): Observable<MessageEvent> {
     let lastSeq = since;
-    let verified = false;
     let pollMs = 300; // start fast, back off when idle
     const MIN_POLL = 300;
     const MAX_POLL = 3000;
+    const startedAt = Date.now();
+    let pollsSinceStatusCheck = 0;
 
-    const fetchEvents = () => {
-      if (!verified) {
-        return from(
-          this.prisma.assessment.findFirst({ where: { id: assessmentId, userId } }).then((a) => {
-            if (!a) return [];
-            verified = true;
-            return this.prisma.assessmentEvent.findMany({
-              where: { assessmentId, seq: { gt: lastSeq } },
-              orderBy: { seq: 'asc' },
-              take: 50,
-            });
-          }),
-        );
+    const fetchEvents = async () => {
+      if (Date.now() - startedAt > STREAM_MAX_DURATION_MS) {
+        return [
+          {
+            seq: lastSeq + 1,
+            type: 'ERROR',
+            payloadJson: { message: 'Stream timed out' },
+          },
+        ];
       }
-      return from(
-        this.prisma.assessmentEvent.findMany({
-          where: { assessmentId, seq: { gt: lastSeq } },
-          orderBy: { seq: 'asc' },
-          take: 50,
-        }),
-      );
+      const events = await this.prisma.assessmentEvent.findMany({
+        where: { assessmentId, seq: { gt: lastSeq } },
+        orderBy: { seq: 'asc' },
+        take: 50,
+      });
+      if (events.length > 0) {
+        return events;
+      }
+      // Periodically check whether the underlying assessment is still RUNNING.
+      // If it terminated without writing a terminal event (e.g., process restart),
+      // synthesize one so the client doesn't poll forever.
+      pollsSinceStatusCheck += 1;
+      if (pollsSinceStatusCheck < STREAM_STATUS_CHECK_INTERVAL) {
+        return [];
+      }
+      pollsSinceStatusCheck = 0;
+      const assessment = await this.prisma.assessment.findUnique({
+        where: { id: assessmentId },
+        select: { status: true },
+      });
+      if (!assessment) {
+        return [
+          {
+            seq: lastSeq + 1,
+            type: 'ERROR',
+            payloadJson: { message: 'Assessment not found' },
+          },
+        ];
+      }
+      if (assessment.status === 'FAILED') {
+        return [
+          {
+            seq: lastSeq + 1,
+            type: 'ERROR',
+            payloadJson: { message: 'Assessment failed' },
+          },
+        ];
+      }
+      if (assessment.status === 'SUCCEEDED') {
+        return [
+          {
+            seq: lastSeq + 1,
+            type: 'FINAL',
+            payloadJson: {},
+          },
+        ];
+      }
+      return [];
     };
 
     // Use recursive timer for adaptive polling
     return timer(0).pipe(
       expand(() => timer(pollMs)),
-      switchMap(() => fetchEvents()),
+      switchMap(() => from(fetchEvents())),
       tap((events) => {
         if (events.length > 0) {
           pollMs = MIN_POLL; // reset to fast polling on activity

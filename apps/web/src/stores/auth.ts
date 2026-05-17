@@ -8,9 +8,20 @@ interface AuthState {
   refreshToken: string | null;
 }
 
+function readStoredUser(): UserProfile | null {
+  try {
+    const raw = sessionStorage.getItem('user');
+    if (!raw) return null;
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    sessionStorage.removeItem('user');
+    return null;
+  }
+}
+
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
-    user: JSON.parse(sessionStorage.getItem('user') || 'null'),
+    user: readStoredUser(),
     accessToken: localStorage.getItem('accessToken'),
     refreshToken: localStorage.getItem('refreshToken'),
   }),

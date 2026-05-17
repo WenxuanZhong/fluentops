@@ -1,29 +1,50 @@
 import { ref } from 'vue';
 import { createUint8Summer } from '../lib/wasm/uint-sum';
 
-const levelBars = ref([14, 18, 16, 22]);
-const levelText = ref('Ready');
-
-let audioContext: AudioContext | null = null;
-let analyser: AnalyserNode | null = null;
-let source: MediaStreamAudioSourceNode | null = null;
-let animationFrame = 0;
-
 export function useMicAnalyzer() {
+  const levelBars = ref([14, 18, 16, 22]);
+  const levelText = ref('Ready');
+
+  let audioContext: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
+  let animationFrame = 0;
+  let attachToken = 0;
+
   async function attach(stream: MediaStream) {
     cleanup();
+    const myToken = ++attachToken;
 
-    audioContext = new AudioContext();
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    source = audioContext.createMediaStreamSource(stream);
-    source.connect(analyser);
+    const ctx = new AudioContext();
+    if (ctx.state === 'suspended') {
+      await ctx.resume().catch(() => {});
+    }
+    if (myToken !== attachToken) {
+      void ctx.close().catch(() => {});
+      return;
+    }
 
-    const buffer = new Uint8Array(analyser.frequencyBinCount);
+    const localAnalyser = ctx.createAnalyser();
+    localAnalyser.fftSize = 256;
+    const localSource = ctx.createMediaStreamSource(stream);
+    localSource.connect(localAnalyser);
+
+    const buffer = new Uint8Array(localAnalyser.frequencyBinCount);
     const sum = await createUint8Summer();
 
+    if (myToken !== attachToken) {
+      localSource.disconnect();
+      localAnalyser.disconnect();
+      void ctx.close().catch(() => {});
+      return;
+    }
+
+    audioContext = ctx;
+    analyser = localAnalyser;
+    source = localSource;
+
     const tick = () => {
-      if (!analyser) return;
+      if (!analyser || myToken !== attachToken) return;
       analyser.getByteFrequencyData(buffer);
 
       const chunkSize = Math.max(1, Math.floor(buffer.length / 4));
@@ -43,6 +64,7 @@ export function useMicAnalyzer() {
   }
 
   function cleanup() {
+    attachToken += 1;
     cancelAnimationFrame(animationFrame);
     source?.disconnect();
     analyser?.disconnect();
