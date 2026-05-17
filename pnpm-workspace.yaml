@@ -1,3 +1,15 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# This workspace is used from both Windows PowerShell and WSL on the same checkout.
+# Install both native optional dependency sets so Rollup/Vite/Vitest stay runnable
+# after switching between win32 and linux without rebuilding the dependency tree.
+supportedArchitectures:
+  os:
+    - win32
+    - linux
+  cpu:
+    - x64
+  libc:
+    - glibc

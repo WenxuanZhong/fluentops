@@ -3,11 +3,15 @@ import {
   IsOptional,
   IsIn,
   IsArray,
+  IsInt,
+  Min,
+  Max,
   MaxLength,
   ArrayMaxSize,
   Matches,
   ValidateIf,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class AssessDto {
   @IsIn(['text', 'recording'])
@@ -28,4 +32,13 @@ export class AssessDto {
   @ArrayMaxSize(10)
   @IsOptional()
   goals?: string[];
+}
+
+export class StreamQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(-1)
+  @Max(99999)
+  since?: number;
 }

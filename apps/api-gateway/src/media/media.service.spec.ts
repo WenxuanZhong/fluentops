@@ -13,6 +13,7 @@ describe('MediaService', () => {
       create: jest.Mock;
       findMany: jest.Mock;
       findFirst: jest.Mock;
+      findUnique: jest.Mock;
     };
   };
   let minio: {
@@ -28,6 +29,7 @@ describe('MediaService', () => {
         create: jest.fn(),
         findMany: jest.fn(),
         findFirst: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(null),
       },
     };
     minio = {
@@ -90,6 +92,35 @@ describe('MediaService', () => {
       const dto = Object.assign(new CompleteUploadDto(), { objectKey: 'recordings/u1/file.webm', mimeType: 'audio/webm', sizeBytes: 100 });
       await expect(service.complete('u1', dto)).rejects.toThrow('Uploaded file not found');
       expect(prisma.recording.create).not.toHaveBeenCalled();
+    });
+
+    it('returns existing recording when called twice with the same objectKey (idempotent)', async () => {
+      const existing = {
+        id: 'r1',
+        userId: 'u1',
+        objectKey: 'recordings/u1/file.webm',
+        createdAt: new Date(),
+      };
+      prisma.recording.findUnique.mockResolvedValueOnce(existing);
+
+      const dto = Object.assign(new CompleteUploadDto(), { objectKey: 'recordings/u1/file.webm', mimeType: 'audio/webm', sizeBytes: 100 });
+      const result = await service.complete('u1', dto);
+
+      expect(result.id).toBe('r1');
+      expect(prisma.recording.create).not.toHaveBeenCalled();
+      expect(minio.statObject).not.toHaveBeenCalled();
+    });
+
+    it('throws Forbidden when an existing recording belongs to another user', async () => {
+      prisma.recording.findUnique.mockResolvedValueOnce({
+        id: 'r1',
+        userId: 'u2',
+        objectKey: 'recordings/u1/file.webm',
+        createdAt: new Date(),
+      });
+
+      const dto = Object.assign(new CompleteUploadDto(), { objectKey: 'recordings/u1/file.webm', mimeType: 'audio/webm', sizeBytes: 100 });
+      await expect(service.complete('u1', dto)).rejects.toThrow(ForbiddenException);
     });
   });
 

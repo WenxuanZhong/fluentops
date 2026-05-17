@@ -11,18 +11,14 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
-  HttpException,
   MessageEvent,
-  ParseIntPipe,
-  DefaultValuePipe,
-  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { BillingService } from '../billing';
+import { InsufficientCreditsException, isInsufficientCreditsError } from '../billing';
 import { AICoachService } from './ai-coach.service';
-import { AssessDto } from './dto';
+import { AssessDto, StreamQueryDto } from './dto';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { PaginationDto } from '../common/pagination.dto';
 
@@ -31,10 +27,7 @@ import { PaginationDto } from '../common/pagination.dto';
 @Controller('ai')
 @UseGuards(JwtAuthGuard)
 export class AICoachController {
-  constructor(
-    private aiCoachService: AICoachService,
-    private billingService: BillingService,
-  ) {}
+  constructor(private aiCoachService: AICoachService) {}
 
   @Post('assess')
   @HttpCode(HttpStatus.CREATED)
@@ -42,9 +35,6 @@ export class AICoachController {
   @ApiResponse({ status: 201, description: 'Assessment created, returns SSE URL' })
   @ApiResponse({ status: 402, description: 'Insufficient credits' })
   async assess(@Req() req: AuthenticatedRequest, @Body() dto: AssessDto) {
-    if (!(await this.billingService.hasCredits(req.user.id))) {
-      throw new HttpException('INSUFFICIENT_CREDITS', 402);
-    }
     try {
       const result = await this.aiCoachService.createAssessment(req.user.id, dto);
       return {
@@ -53,11 +43,8 @@ export class AICoachController {
         wsUrl: `/ws/assessments`,
       };
     } catch (error) {
-      if (
-        error instanceof BadRequestException &&
-        error.message === 'Insufficient credits'
-      ) {
-        throw new HttpException('INSUFFICIENT_CREDITS', 402);
+      if (isInsufficientCreditsError(error)) {
+        throw new InsufficientCreditsException();
       }
       throw error;
     }
@@ -82,11 +69,12 @@ export class AICoachController {
 
   @Sse('assess/:id/stream')
   @ApiOperation({ summary: 'SSE stream for assessment progress' })
-  stream(
+  async stream(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
-    @Query('since', new DefaultValuePipe(-1), ParseIntPipe) since: number,
-  ): Observable<MessageEvent> {
-    return this.aiCoachService.streamEvents(id, req.user.id, since);
+    @Query() query: StreamQueryDto,
+  ): Promise<Observable<MessageEvent>> {
+    await this.aiCoachService.ensureOwnership(id, req.user.id);
+    return this.aiCoachService.streamEvents(id, query.since ?? -1);
   }
 }

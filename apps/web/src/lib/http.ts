@@ -52,22 +52,12 @@ http.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (refreshPromise) {
-      try {
-        const token = await refreshPromise;
-        originalRequest.headers.Authorization = `Bearer ${token}`;
-        return http(originalRequest);
-      } catch (e) {
-        return Promise.reject(e);
-      }
-    }
-
     originalRequest._retry = true;
-
-    refreshPromise = doRefresh();
+    const activeRefresh = refreshPromise ?? (refreshPromise = doRefresh());
 
     try {
-      const token = await refreshPromise;
+      const token = await activeRefresh;
+      originalRequest.headers = originalRequest.headers ?? {};
       originalRequest.headers.Authorization = `Bearer ${token}`;
       return http(originalRequest);
     } catch (refreshError) {
@@ -76,7 +66,9 @@ http.interceptors.response.use(
       router.push('/login');
       return Promise.reject(refreshError);
     } finally {
-      refreshPromise = null;
+      if (refreshPromise === activeRefresh) {
+        refreshPromise = null;
+      }
     }
   },
 );

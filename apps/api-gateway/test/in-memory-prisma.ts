@@ -288,6 +288,15 @@ class InMemoryPrismaService {
       const recording = this.state.recordings.find((row) => matchesWhere(row, args?.where));
       return recording ? { ...recording } : null;
     },
+    findUnique: async (args: any) => {
+      const recording = this.state.recordings.find((row) => matchesWhere(row, args?.where));
+      return recording ? { ...recording } : null;
+    },
+    deleteMany: async (args: any) => {
+      const before = this.state.recordings.length;
+      this.state.recordings = this.state.recordings.filter((row) => !matchesWhere(row, args?.where));
+      return { count: before - this.state.recordings.length };
+    },
   };
 
   readonly assessment = {

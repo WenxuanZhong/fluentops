@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "packageManager": "pnpm@9.15.4",
   "engines": {
-    "node": "20"
+    "node": ">=20",
+    "pnpm": "9.15.4"
   },
   "pnpm": {
     "overrides": {
@@ -23,14 +24,25 @@
     }
   },
   "scripts": {
-    "dev": "node ./scripts/run-turbo.mjs dev --parallel",
-    "lint": "node ./scripts/run-turbo.mjs lint",
-    "typecheck": "node ./scripts/run-turbo.mjs typecheck",
-    "test": "node ./scripts/run-turbo.mjs test",
-    "build": "node ./scripts/run-turbo.mjs build",
-    "audit": "pnpm audit --audit-level=high",
-    "format": "prettier . --check",
-    "format:write": "prettier . --write"
+    "doctor:env": "node ./scripts/doctor.mjs",
+    "toolchain:check": "node ./scripts/check-toolchain.mjs --mode=strict",
+    "verify:local": "node ./scripts/verify-local.mjs",
+    "verify:api:e2e": "node ./scripts/check-toolchain.mjs --mode=warn && node ./scripts/run-pnpm.mjs --filter api-gateway test:e2e",
+    "verify:api:e2e:realdb": "node ./scripts/check-toolchain.mjs --mode=warn && node ./scripts/run-pnpm.mjs --env E2E_USE_REAL_DB=true --filter api-gateway test:e2e",
+    "infra:start": "node ./scripts/infra.mjs start",
+    "infra:stop": "node ./scripts/infra.mjs stop",
+    "infra:reset": "node ./scripts/infra.mjs reset",
+    "infra:status": "node ./scripts/infra.mjs status",
+    "infra:logs": "node ./scripts/infra.mjs logs",
+    "infra:wait": "node ./scripts/infra.mjs wait",
+    "dev": "node ./scripts/check-toolchain.mjs --mode=warn && node ./scripts/run-turbo.mjs dev --parallel",
+    "lint": "node ./scripts/check-toolchain.mjs --mode=warn && node ./scripts/run-turbo.mjs lint",
+    "typecheck": "node ./scripts/check-toolchain.mjs --mode=warn && node ./scripts/run-turbo.mjs typecheck",
+    "test": "node ./scripts/check-toolchain.mjs --mode=warn && node ./scripts/run-turbo.mjs test",
+    "build": "node ./scripts/check-toolchain.mjs --mode=warn && node ./scripts/run-turbo.mjs build",
+    "audit": "node ./scripts/check-toolchain.mjs --mode=warn && pnpm audit --audit-level=high",
+    "format": "node ./scripts/check-toolchain.mjs --mode=warn && prettier . --check",
+    "format:write": "node ./scripts/check-toolchain.mjs --mode=warn && prettier . --write"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

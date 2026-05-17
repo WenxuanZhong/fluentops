@@ -4,6 +4,7 @@ import type { Plan } from '@prisma/client';
 import { PrismaService } from '../prisma';
 import { AlipayService } from './alipay.service';
 import { RedisService } from '../redis/redis.service';
+import { InsufficientCreditsException } from './billing.errors';
 
 @Injectable()
 export class BillingService implements OnModuleInit {
@@ -154,7 +155,7 @@ export class BillingService implements OnModuleInit {
         where: { userId, credits: { gt: 0 } },
         data: { credits: { decrement: 1 } },
       });
-      if (count === 0) throw new BadRequestException('Insufficient credits');
+      if (count === 0) throw new InsufficientCreditsException();
       await tx.creditLedger.create({ data: { userId, delta: -1, reason, refId } });
     });
   }

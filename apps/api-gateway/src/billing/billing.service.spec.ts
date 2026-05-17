@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BillingService } from './billing.service';
 import { PrismaService } from '../prisma';
 import { AlipayService } from './alipay.service';
 import { RedisService } from '../redis/redis.service';
+import { InsufficientCreditsException } from './billing.errors';
 
 describe('BillingService', () => {
   let service: BillingService;
@@ -58,7 +58,7 @@ describe('BillingService', () => {
 
     it('throws when credits = 0', async () => {
       prisma.userBalance.updateMany.mockResolvedValue({ count: 0 });
-      await expect(service.deductCredit('u1', 'test')).rejects.toThrow(BadRequestException);
+      await expect(service.deductCredit('u1', 'test')).rejects.toThrow(InsufficientCreditsException);
     });
   });
 

@@ -29,6 +29,20 @@ export class MediaService {
       throw new ForbiddenException('Object key does not belong to user');
     }
 
+    const existing = await this.prisma.recording.findUnique({
+      where: { objectKey: dto.objectKey },
+    });
+    if (existing) {
+      if (existing.userId !== userId) {
+        throw new ForbiddenException('Object key does not belong to user');
+      }
+      return {
+        id: existing.id,
+        url: this.buildFileUrl(existing.objectKey),
+        createdAt: existing.createdAt,
+      };
+    }
+
     let stat;
     try {
       stat = await this.minio.statObject(dto.objectKey);

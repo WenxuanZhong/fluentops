@@ -35,11 +35,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: lts/*
           cache: pnpm
+
+      - name: Verify Toolchain Contract
+        run: node ./scripts/check-toolchain.mjs --mode=strict
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Doctor
+        run: pnpm doctor:env
 
       - name: Audit dependencies
         run: pnpm audit --audit-level=high
@@ -88,11 +94,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: lts/*
           cache: pnpm
+
+      - name: Verify Toolchain Contract
+        run: node ./scripts/check-toolchain.mjs --mode=strict
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Doctor
+        run: pnpm doctor:env
 
       - name: Build shared
         run: pnpm --filter @fluentops/shared build

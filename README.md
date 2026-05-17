@@ -74,15 +74,20 @@ docs/
 
 Prerequisites:
 
-- Node.js 20.x
+- Node.js 20.x or any newer LTS (Node 22 / 24 are accepted; CI runs on the latest LTS)
 - Corepack enabled
+- pnpm 9.15.4 via the repo `packageManager` contract
 - Docker Desktop (for Postgres, Redis, MinIO)
+- Supported local environments: Windows PowerShell, WSL2 on a glibc-based distro, and CI on Ubuntu
 
 ```bash
 corepack prepare pnpm@9.15.4 --activate
 pnpm install
-docker compose -f infra/docker-compose.yml up -d
+pnpm doctor:env
+pnpm infra:start
 ```
+
+The workspace now installs optional native packages for both Windows x64 and WSL/Linux x64 glibc. This keeps a shared checkout usable from both PowerShell and WSL without losing Rollup/Vite/Vitest platform binaries after switching shells.
 
 Create the API env file:
 
@@ -106,6 +111,44 @@ pnpm dev
 Web: http://localhost:5173 — API: http://localhost:3000
 
 Root workspace commands (`pnpm dev`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`) are now cross-platform and work in PowerShell as well as bash.
+
+Tooling helpers:
+
+- `pnpm doctor:env` checks the pinned Node/pnpm contract, current OS/runtime details, Docker availability, and current-platform native frontend packages.
+- `pnpm toolchain:check` is the strict preflight used to enforce the same Node/pnpm contract in automation.
+- `pnpm verify:local` runs the full local gate in order: `lint -> typecheck -> test -> build -> api-gateway e2e`.
+- `pnpm verify:api:e2e` and `pnpm verify:api:e2e:realdb` give API-only verification entrypoints.
+- `pnpm infra:start|stop|reset|status|logs|wait` standardize local Postgres/Redis/MinIO lifecycle management.
+- `.nvmrc` and `.node-version` are set to `lts/*` so version managers pick the latest LTS by default. The `engines.node` contract is `>=20`.
+
+## Local Infra
+
+Recommended local startup order:
+
+1. Run `pnpm infra:start` to bring up Postgres, Redis, and MinIO.
+2. Copy `apps/api-gateway/.env.example` to `apps/api-gateway/.env` if you have not done it yet.
+3. Run `pnpm --filter api-gateway prisma migrate dev`.
+4. Start the apps with `pnpm dev`.
+
+Infra helper commands:
+
+```bash
+pnpm infra:start   # docker compose up -d, then wait for readiness
+pnpm infra:status  # local readiness check + docker compose ps when available
+pnpm infra:logs    # tail docker compose logs
+pnpm infra:stop    # stop infra containers
+pnpm infra:reset   # stop infra containers and remove volumes
+pnpm infra:wait    # only run readiness probes against localhost
+```
+
+Readiness checks and startup notes:
+
+- Postgres readiness: TCP `127.0.0.1:5432`
+- Redis readiness: TCP `127.0.0.1:6379`
+- MinIO readiness: `GET http://127.0.0.1:9000/minio/health/live`
+- `pnpm infra:status` and `pnpm infra:wait` probe localhost only; they confirm reachability, not whether Docker owns the running service.
+- MinIO bucket creation is handled by the API on startup, so `infra:start` only ensures the service is reachable.
+- `api-gateway` can start without Redis or MinIO, but those integrations will degrade or warn; the recommended local path is to wait until all three services are ready before running migrations and app servers.
 
 ## Design Highlights
 
@@ -199,14 +242,21 @@ See [docs/audit-report.md](docs/audit-report.md) for the full security audit.
 | POST | `/billing/mock/pay` | Mock payment (dev) |
 
 See [docs/api-reference.md](docs/api-reference.md) for detailed curl examples.
+See [docs/api-verification.md](docs/api-verification.md) for the end-to-end verification order, current automated coverage, and mock-vs-real provider boundaries.
+See [docs/web-acceptance-checklist.md](docs/web-acceptance-checklist.md) for the manual browser acceptance pass.
 
 ## Commands
 
 ```bash
 pnpm lint          # ESLint (all packages)
 pnpm typecheck     # TypeScript check
-pnpm test          # Unit tests
+pnpm test          # Root unit test suite (shared + web + api-gateway)
 pnpm build         # Production build
+pnpm verify:local  # Full local gate: lint -> typecheck -> test -> build -> api e2e
+pnpm verify:api:e2e        # API e2e in local in-memory mode
+pnpm verify:api:e2e:realdb # API e2e against a real PostgreSQL path
+pnpm infra:start   # Start Postgres + Redis + MinIO and wait for readiness
+pnpm infra:status  # Inspect infra readiness
 pnpm dev           # Dev servers (web + api)
 pnpm audit         # Dependency audit (expect only low/moderate findings after overrides)
 
@@ -217,6 +267,27 @@ pnpm prisma studio         # Prisma Studio
 pnpm test:e2e              # E2E tests (local in-memory mode by default)
 E2E_USE_REAL_DB=true pnpm test:e2e   # Opt into the real PostgreSQL-backed flow
 ```
+
+Root test verification:
+
+- Run `pnpm test` from the repo root.
+- Expected successful tail output: `Tasks: 3 successful, 3 total`.
+- The run currently exercises `@fluentops/shared`, `web`, and `api-gateway`.
+- During `api-gateway` unit tests you may see one `Health check DB probe failed` log line from `app.controller.spec.ts`; that log is expected because the test intentionally verifies the database-down branch while still passing overall.
+
+Root build verification:
+
+- Run `pnpm build` from the repo root.
+- Expected successful tail output: `Tasks: 3 successful, 3 total`.
+- The run currently builds `@fluentops/shared`, `web`, and `api-gateway`.
+- The current web production build still emits Vite chunk-size warnings for the largest frontend bundles; those warnings do not fail the build, but they remain a follow-up optimization item.
+
+One-click local verification:
+
+- Run `pnpm verify:local` from the repo root.
+- Current order: `pnpm lint` -> `pnpm typecheck` -> `pnpm test` -> `pnpm build` -> `pnpm --filter api-gateway test:e2e`.
+- The final success line is `[verify-local] All local verification steps passed.`
+- `api-gateway` e2e uses the local in-memory Prisma adapter by default, so Docker is not required for this script unless you explicitly switch to the real database path.
 
 ## Environment Variables
 
@@ -239,5 +310,11 @@ Ports: Postgres 5432, Redis 6379, MinIO 9000/9001, API 3000, Web 5173
 ## Troubleshooting
 
 - `docker` command not found: install Docker Desktop or provide your own Postgres / Redis / MinIO endpoints in `apps/api-gateway/.env`.
-- `pnpm dev` fails with a Node warning: the workspace expects Node 20.x. Node 22 may work locally, but CI and the repo contract are pinned to Node 20.
+- `pnpm infra:start` fails immediately with a Docker message: install Docker Desktop and verify `docker compose version` works, or skip the helper scripts and point `apps/api-gateway/.env` at externally managed Postgres / Redis / MinIO services.
+- `pnpm infra:status` reports Postgres / Redis / MinIO as down: run `pnpm infra:logs` if Docker is available, or verify that the services are actually listening on `5432`, `6379`, and `9000`.
+- `pnpm dev` or `pnpm doctor:env` reports a Node version mismatch: the workspace contract is Node `>=20` and pnpm 9.15.4. Install Node 20 or any newer LTS (Node 22 LTS works too), then rerun `pnpm doctor:env` to confirm the environment.
 - `pnpm test:e2e` now uses an in-memory Prisma adapter locally, so it should run without Docker. To exercise the real database path, start Postgres first and run `E2E_USE_REAL_DB=true pnpm --filter api-gateway test:e2e`.
+- `Cannot find module @rollup/rollup-linux-x64-gnu` in WSL: rerun `pnpm install` at the repo root. The workspace is configured to hydrate both Windows x64 and Linux x64 glibc optional native dependencies, but older `node_modules` trees need one reinstall to pick up the missing Linux package.
+- `pnpm verify:local` stops at `test` or `build`: read the first failing package block above the final Turbo summary; the command is intentionally sequential so the earliest real failure is the one to fix first.
+- `pnpm verify:local` fails at `api-gateway` e2e after the earlier phases passed: inspect the e2e output separately with `pnpm --filter api-gateway test:e2e`; the local default path is in-memory, so failures there usually mean an application regression rather than missing Docker services.
+- `pnpm verify:api:e2e:realdb` fails before tests run: make sure Postgres is actually available at the `DATABASE_URL` you are exporting; the real-db mode does not create infrastructure for you.

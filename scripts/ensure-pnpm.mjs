@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { existsSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,23 +11,35 @@ const unixBin = join(targetDir, 'pnpm');
 const windowsBin = join(targetDir, 'pnpm.cmd');
 const powershellBin = join(targetDir, 'pnpm.ps1');
 
+const unixContent = `#!/bin/sh
+exec corepack pnpm "$@"
+`;
+const windowsContent = `@echo off\r\ncorepack pnpm %*\r\n`;
+const powershellContent = `#!/usr/bin/env pwsh
+corepack pnpm $args
+`;
+
 mkdirSync(targetDir, { recursive: true });
 
-// Create simple wrappers that invoke corepack pnpm on each platform.
-writeFileSync(unixBin, `#!/bin/sh
-exec corepack pnpm "$@"
-`);
-writeFileSync(windowsBin, `@echo off\r
-corepack pnpm %*\r
-`);
-writeFileSync(
-  powershellBin,
-  `#!/usr/bin/env pwsh
-corepack pnpm $args
-`,
-);
+let wroteAnything = false;
 
-chmodSync(unixBin, 0o755);
-chmodSync(powershellBin, 0o755);
+if (!existsSync(unixBin)) {
+  writeFileSync(unixBin, unixContent);
+  chmodSync(unixBin, 0o755);
+  wroteAnything = true;
+}
 
-console.log(`[ensure-pnpm] pnpm wrappers installed to ${targetDir}`);
+if (!existsSync(windowsBin)) {
+  writeFileSync(windowsBin, windowsContent);
+  wroteAnything = true;
+}
+
+if (!existsSync(powershellBin)) {
+  writeFileSync(powershellBin, powershellContent);
+  chmodSync(powershellBin, 0o755);
+  wroteAnything = true;
+}
+
+if (wroteAnything) {
+  console.log(`[ensure-pnpm] pnpm wrappers installed to ${targetDir}`);
+}
