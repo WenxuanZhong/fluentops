@@ -157,5 +157,11 @@ jobs:
       - name: Render production compose config
         run: docker compose -f infra/docker-compose.prod.yml --env-file .env.prod.example config > /tmp/fluentops-compose.yml
 
+      - name: Docker diagnostics
+        run: |
+          docker version
+          docker compose version
+          docker system df
+
       - name: Smoke test production compose
         run: node ./scripts/prod-smoke.mjs --timeout-ms 420000
