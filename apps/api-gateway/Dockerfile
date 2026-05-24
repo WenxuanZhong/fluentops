@@ -7,7 +7,10 @@ ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN npm install -g corepack@0.34.0 \
  && corepack enable \
- && corepack prepare pnpm@9.15.4 --activate
+ && corepack prepare pnpm@9.15.4 --activate \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /repo
 
@@ -41,15 +44,15 @@ RUN npm install -g corepack@0.34.0 && \
 
 WORKDIR /app
 
-COPY --from=build /repo/package.json /repo/pnpm-lock.yaml /repo/pnpm-workspace.yaml ./
-COPY --from=build /repo/apps/api-gateway/package.json apps/api-gateway/
-COPY --from=build /repo/packages/shared/package.json packages/shared/
-COPY --from=build /repo/packages/shared/dist packages/shared/dist
-COPY --from=build /repo/apps/api-gateway/dist apps/api-gateway/dist
-COPY --from=build /repo/apps/api-gateway/prisma apps/api-gateway/prisma
-COPY --from=build /repo/node_modules node_modules
-COPY --from=build /repo/apps/api-gateway/node_modules apps/api-gateway/node_modules
-COPY --from=build /repo/packages/shared/node_modules packages/shared/node_modules
+COPY --from=build --chown=node:node /repo/package.json /repo/pnpm-lock.yaml /repo/pnpm-workspace.yaml ./
+COPY --from=build --chown=node:node /repo/apps/api-gateway/package.json apps/api-gateway/
+COPY --from=build --chown=node:node /repo/packages/shared/package.json packages/shared/
+COPY --from=build --chown=node:node /repo/packages/shared/dist packages/shared/dist
+COPY --from=build --chown=node:node /repo/apps/api-gateway/dist apps/api-gateway/dist
+COPY --from=build --chown=node:node /repo/apps/api-gateway/prisma apps/api-gateway/prisma
+COPY --from=build --chown=node:node /repo/node_modules node_modules
+COPY --from=build --chown=node:node /repo/apps/api-gateway/node_modules apps/api-gateway/node_modules
+COPY --from=build --chown=node:node /repo/packages/shared/node_modules packages/shared/node_modules
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

@@ -69,11 +69,15 @@ generateCertificate();
 
 let started = false;
 try {
+  console.log('[prod-smoke] Verifying generated production environment.');
   runNode(['./scripts/verify-prod.mjs', '--env-file', relative(repoRoot, envFile)]);
+  console.log('[prod-smoke] Rendering production compose config.');
   compose(['config'], { stdio: 'pipe' });
   started = true;
+  console.log(`[prod-smoke] Starting production compose stack for project ${projectName}.`);
   compose(['up', '-d', ...(skipBuild ? [] : ['--build'])]);
 
+  console.log(`[prod-smoke] Waiting for edge health at https://127.0.0.1:${httpsPort}/health.`);
   const health = await waitForHealth();
   if (
     health.status !== 'ok' ||
@@ -84,7 +88,9 @@ try {
     throw new Error(`Unexpected health response: ${JSON.stringify(health)}`);
   }
 
+  console.log('[prod-smoke] Verifying object storage proxy.');
   await waitForObjectsProxy();
+  console.log('[prod-smoke] Verifying web shell.');
   await waitForWebShell();
   console.log('[prod-smoke] Production compose smoke test passed.');
 } catch (error) {
