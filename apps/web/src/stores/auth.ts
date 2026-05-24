@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
-import { http } from '../lib/http';
+import { REFRESH_TIMEOUT_MS, http } from '../lib/http';
+import { authSession } from '../lib/authSession';
 import type { AuthTokens, UserProfile } from '@fluentops/shared';
 
 interface AuthState {
@@ -7,21 +8,12 @@ interface AuthState {
   accessToken: string | null;
 }
 
-function readStoredUser(): UserProfile | null {
-  try {
-    const raw = sessionStorage.getItem('user');
-    if (!raw) return null;
-    return JSON.parse(raw) as UserProfile;
-  } catch {
-    sessionStorage.removeItem('user');
-    return null;
-  }
-}
+let sessionSyncBound = false;
 
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
-    user: readStoredUser(),
-    accessToken: localStorage.getItem('accessToken'),
+    user: authSession.getUser(),
+    accessToken: authSession.getAccessToken(),
   }),
 
   getters: {
@@ -31,14 +23,36 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     setAccessToken(accessToken: string) {
       this.accessToken = accessToken;
-      localStorage.setItem('accessToken', accessToken);
+      authSession.setAccessToken(accessToken);
+    },
+
+    syncFromSession() {
+      this.accessToken = authSession.getAccessToken();
+      this.user = this.accessToken ? authSession.getUser() : null;
+
+      if (!this.accessToken) {
+        authSession.clearUser();
+      }
+    },
+
+    bindSessionSync(onSessionCleared?: () => void) {
+      if (sessionSyncBound || typeof window === 'undefined') return;
+
+      window.addEventListener('storage', (event) => {
+        if (event.key === 'accessToken') {
+          this.syncFromSession();
+          if (!this.accessToken) {
+            onSessionCleared?.();
+          }
+        }
+      });
+      sessionSyncBound = true;
     },
 
     clearAuth() {
       this.user = null;
       this.accessToken = null;
-      localStorage.removeItem('accessToken');
-      sessionStorage.removeItem('user');
+      authSession.clear();
     },
 
     async register(email: string, password: string) {
@@ -55,8 +69,34 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async refresh() {
-      const { data } = await http.post<AuthTokens>('/auth/refresh', {});
+      const { data } = await http.post<AuthTokens>('/auth/refresh', {}, {
+        timeout: REFRESH_TIMEOUT_MS,
+      });
       this.setAccessToken(data.accessToken);
+    },
+
+    async ensureSession() {
+      this.syncFromSession();
+
+      if (!this.accessToken) {
+        try {
+          await this.refresh();
+        } catch {
+          this.clearAuth();
+          return false;
+        }
+      }
+
+      if (!this.user) {
+        try {
+          await this.fetchUser();
+        } catch {
+          this.clearAuth();
+          return false;
+        }
+      }
+
+      return true;
     },
 
     async logout() {
@@ -71,7 +111,7 @@ export const useAuthStore = defineStore('auth', {
     async fetchUser() {
       const { data } = await http.get<UserProfile>('/me');
       this.user = data;
-      sessionStorage.setItem('user', JSON.stringify(data));
+      authSession.setUser(data);
     },
   },
 });

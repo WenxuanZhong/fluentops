@@ -14,25 +14,21 @@ export const router = createRouter({
   ],
 });
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore();
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    next('/login');
+  if (to.meta.requiresAuth) {
+    const hasSession = await authStore.ensureSession();
+    if (!hasSession) {
+      next({ name: 'login', query: { redirect: to.fullPath } });
+      return;
+    }
+
+    next();
     return;
   }
 
   if ((to.name === 'login' || to.name === 'register') && authStore.isAuthenticated) {
     next('/dashboard');
-    return;
-  }
-
-  if (to.meta.requiresAuth && authStore.isAuthenticated && !authStore.user) {
-    authStore.fetchUser()
-      .then(() => next())
-      .catch(async () => {
-        await authStore.logout();
-        next('/login');
-      });
     return;
   }
 

@@ -36,7 +36,7 @@
 - `api-gateway` 单测：通过，5 个 suite，23 个测试
 - `api-gateway` e2e：通过，1 个 suite，28 个测试
 - 根级 `test`：通过（2026-03-22，3 个包全部通过，耗时约 2m42s）
-- 根级 `build`：通过（2026-03-22，3 个包全部通过，耗时约 1m56s；仍有前端 chunk 体积警告）
+- 根级 `build`：通过（2026-05-25，3 个包全部通过；前端已拆分 Vue、Element Plus、Three.js、动效、HTTP 与业务 chunk，当前无 Vite 大 chunk 警告）
 
 ### 2.4 当前最关键阻塞
 
@@ -151,7 +151,7 @@
 
 - P0.2.2 恢复根级 `build`
   - 状态：已完成（2026-03-22）
-  - 已落地：根级 `pnpm build` 已恢复；当前成功尾输出为 `Tasks: 3 successful, 3 total`；README 中已补验证命令与非阻塞的前端 chunk 警告说明
+  - 已落地：根级 `pnpm build` 已恢复；当前成功尾输出为 `Tasks: 3 successful, 3 total`；README 中已补验证命令；2026-05-25 已进一步拆分前端 vendor chunk 并消除 Vite 大 chunk 警告
   - P0.2.2.a 修复 web 构建链
   - P0.2.2.b 检查 `turbo` 缓存和跨包依赖是否稳定
   - P0.2.2.c 产出明确的构建成功验证记录
@@ -204,12 +204,17 @@
   - 完成标准：登录态初始化路径单一、可预测、可测试
 
 - P1.1.2 会话存储抽象层
+  - 状态：已完成（2026-05-25）
+  - 已落地：新增 `apps/web/src/lib/authSession.ts`，集中管理 access token 与缓存用户信息；`auth store`、HTTP refresh 拦截器、实时评测连接都改为通过该适配层读写会话状态；新增 `authSession.test.ts` 覆盖 token、用户缓存、损坏缓存恢复与整体清理。
   - P1.1.2.a 把当前 `localStorage/sessionStorage` 读写封装为统一适配层
   - P1.1.2.b 为后续 httpOnly cookie 迁移留接口
   - P1.1.2.c 增加异常恢复策略
   - 完成标准：后续安全迁移不再需要全仓库散改
 
 - P1.1.3 会话异常体验
+  - 状态：已完成（2026-05-25）
+  - 已落地：`auth store` 新增 `ensureSession()`，路由守卫在进入受保护页面前会先从本地会话同步、必要时通过 httpOnly refresh cookie 恢复 access token，再拉取当前用户；refresh 请求设置 5s 上限，refresh 或 `/me` 失败时统一清理本地会话并跳转登录页，保留原目标路由用于登录后回跳。
+  - 补充说明：应用启动后绑定 `storage` 事件，跨标签页 access token 变化会同步到当前 Pinia 状态；`auth.store.test.ts` 已覆盖缺失 access token 时的 refresh 恢复和 refresh 失败清理。
   - P1.1.3.a 处理 token 失效后的提示与跳转
   - P1.1.3.b 处理 refresh 失败后的用户体验
   - P1.1.3.c 处理多标签页状态不同步
@@ -474,12 +479,18 @@
 ### P3.4 备份与恢复
 
 - P3.4.1 数据库备份恢复方案
+  - 状态：部分完成（2026-05-25）
+  - 已落地：`docs/production-runbook.md` 增加 Postgres `pg_dump -Fc` 备份命令和非生产环境 restore drill；生产 compose 固定 `fluentops_pg_data` 卷名，便于脚本化备份和恢复。
+  - 待补充：自动化定时备份、异地保留策略、RPO / RTO 数值和定期恢复演练记录。
   - P3.4.1.a 输出 Postgres 备份方案
   - P3.4.1.b 输出恢复演练流程
   - P3.4.1.c 记录 RPO / RTO 目标
   - 完成标准：数据库故障时有书面恢复路径
 
 - P3.4.2 对象存储恢复方案
+  - 状态：部分完成（2026-05-25）
+  - 已落地：`docs/production-runbook.md` 增加 MinIO Docker volume tar 备份与恢复命令；生产 compose 固定 `fluentops_minio_data` 卷名。
+  - 待补充：对象存储与数据库元数据对账脚本、生命周期策略和异地备份目标。
   - P3.4.2.a 明确对象存储备份方式
   - P3.4.2.b 设计恢复演练
   - P3.4.2.c 明确与数据库元数据对账方式
@@ -578,6 +589,9 @@
   - 完成标准：CI 覆盖真实支持环境
 
 - P5.2.2 质量门禁策略
+  - 状态：部分完成（2026-05-25）
+  - 已落地：CI 新增 `production-ready` job，覆盖生产 compose 静态合约、compose config 渲染、API 生产镜像构建、Web 生产镜像构建和生产 compose 冒烟；`pnpm verify:prod:compose` 可在无生产密钥时复用静态发布门禁，`pnpm verify:prod:smoke` 可在 Docker/OpenSSL 可用环境验证临时生产栈启动。
+  - 待补充：覆盖率阈值、浏览器级 e2e 门禁、发布分支保护规则和告警策略。
   - P5.2.2.a 定义哪些检查必须阻断合并
   - P5.2.2.b 定义哪些检查只警告
   - P5.2.2.c 输出统一门禁说明
@@ -596,18 +610,26 @@
 ### P6.1 容器化交付
 
 - P6.1.1 API Dockerfile
+  - 状态：部分完成（2026-05-25）
+  - 已落地：`apps/api-gateway/Dockerfile` 已是多阶段构建，并在运行镜像中包含 Prisma schema/client、健康检查和 `tini`；`infra/docker-compose.prod.yml` 复用该镜像执行一次性 `prisma migrate deploy`；CI `production-ready` job 会构建 `fluentops-api-gateway:ci` 镜像并通过 `pnpm verify:prod:smoke` 拉起临时生产栈。
+  - 待验证：当前机器没有 Docker，尚未在本机完成镜像 build / container healthcheck 实测；需要以 CI 或 Docker 主机结果作为发布签署依据。
   - P6.1.1.a 设计多阶段构建
   - P6.1.1.b 处理 Prisma client 生成
   - P6.1.1.c 输出运行镜像最小化方案
   - 完成标准：API 可独立容器化
 
 - P6.1.2 Web Dockerfile / 静态发布方案
+  - 状态：部分完成（2026-05-25）
+  - 已落地：`apps/web/Dockerfile` 构建 Vite 静态产物并用 nginx `web.conf` 提供 SPA fallback、`/healthz` 和 hashed asset cache；`VITE_API_BASE_URL` 通过 build arg 注入；CI `production-ready` job 会构建 `fluentops-web:ci` 镜像并通过 `pnpm verify:prod:smoke` 验证 edge nginx 能返回 Web shell。
+  - 待验证：当前机器没有 Docker，尚未在本机完成 web 镜像 build / nginx healthcheck 实测；需要以 CI 或 Docker 主机结果作为发布签署依据。
   - P6.1.2.a 设计静态构建与服务方式
   - P6.1.2.b 明确环境变量注入方案
   - P6.1.2.c 输出可部署镜像
   - 完成标准：Web 可独立发布
 
 - P6.1.3 生产部署编排
+  - 状态：已完成最低可部署形态（2026-05-25）
+  - 已落地：`infra/docker-compose.prod.yml` 编排 Postgres、Redis、MinIO、一次性迁移服务、API、Web 和 edge nginx；API 等待迁移成功后启动；edge nginx 覆盖 HTTPS、API/SSE、WebSocket 与 SPA 反代；新增 `.dockerignore` 排除依赖、构建产物、环境文件和证书目录；`docs/production-runbook.md` 补发布步骤与健康检查。
   - P6.1.3.a 设计 `compose.prod` 或等价部署清单
   - P6.1.3.b 明确反向代理、证书、域名、健康检查
   - P6.1.3.c 明确依赖服务参数
@@ -616,12 +638,18 @@
 ### P6.2 环境分层
 
 - P6.2.1 dev / staging / prod 配置模板
+  - 状态：部分完成（2026-05-25）
+  - 已落地：根级 `.env.example` 保留开发默认值，新增 `.env.prod.example` 作为生产模板；新增 `pnpm init:prod-env` 从模板生成 `.env.prod` 并自动填充数据库、Redis、JWT、refresh token、MinIO 和镜像 tag 随机值；`docs/production-runbook.md` 单独列出生产必填值、真实 provider 要求和 API 生产启动拒绝条件。
+  - 待补充：staging 与 prod 若使用不同外部托管服务，还需要拆分专用模板或密钥管理说明。
   - P6.2.1.a 输出环境变量清单
   - P6.2.1.b 标记敏感项、默认项、必填项
   - P6.2.1.c 区分 mock 与 real provider 配置
   - 完成标准：环境分层不再混杂
 
 - P6.2.2 发布与回滚流程
+  - 状态：部分完成（2026-05-25）
+  - 已落地：`docs/production-runbook.md` 记录 `verify:local -> verify:prod:compose -> verify:prod -> verify:prod:smoke -> build -> up -> ps -> health` 的发布顺序、显式 migration-only 命令、健康检查、备份/恢复演练和 image tag 回滚流程；生产 compose 使用同一个 `FLUENTOPS_IMAGE_TAG` 标记 API 与 Web 镜像；新增 `pnpm verify:prod` 做生产 compose 与 `.env.prod` 静态预检，新增 `pnpm verify:prod:compose` 供 CI 和无密钥场景验证 compose/CI 合约，新增 `pnpm verify:prod:smoke` 用临时 env/certs/隔离卷执行 Docker 级生产栈冒烟。
+  - 待补充：备份自动化、破坏性迁移回滚说明、生产镜像仓库推送流程。
   - P6.2.2.a 输出发布清单
   - P6.2.2.b 输出数据库迁移前后检查
   - P6.2.2.c 输出回滚方案

@@ -115,8 +115,11 @@ pnpm dev
 工具链辅助命令：
 
 - `pnpm doctor:env` 会检查固定的 Node/pnpm 契约、当前 OS/运行时信息、Docker 可用性，以及当前平台需要的前端原生依赖是否齐全。
+- `pnpm init:prod-env` 会从生产模板创建 `.env.prod` 并生成本地密钥；公网域名和第三方 provider 凭据仍需要填写真实值。
 - `pnpm toolchain:check` 是严格模式预检，供自动化与 CI 统一执行同一套 Node/pnpm 契约。
 - `pnpm verify:local` 会按顺序执行完整的本地门禁：`lint -> typecheck -> test -> build -> api-gateway e2e`。
+- `pnpm verify:prod` 会检查生产 compose 和 `.env.prod` 发布预检；没有生产密钥时可执行 `pnpm verify:prod:compose` 只检查 compose。
+- `pnpm verify:prod:smoke` 会使用临时密钥、自签 TLS 证书、隔离卷和高位端口构建并拉起生产 compose 栈；需要 Docker 和 OpenSSL。
 - `pnpm verify:api:e2e` 和 `pnpm verify:api:e2e:realdb` 提供只针对 API 的验证入口。
 - `pnpm infra:start|stop|reset|status|logs|wait` 用于统一管理本地 Postgres / Redis / MinIO 的生命周期。
 - `.nvmrc` 和 `.node-version` 都设为 `lts/*`，本地版本管理器会自动选用最新 LTS；`engines.node` 契约为 `>=20`。
@@ -170,7 +173,7 @@ Provider 接口抽象支付：`mock` 用于 CI/开发 (即时完成)，`alipay` 
 
 ### 实时、缓存与自动化
 
-Redis 作为可选缓存层，用于套餐查询缓存，并在 `/health` 中暴露为 `up`、`down` 或 `disabled`。定时任务会清理过期 refresh token，并取消长时间未支付的订单。已完成评测还可以通过通知接口发送邮件摘要。
+Redis 作为可选缓存层，用于套餐查询缓存，并在 `/health` 中暴露为 `up`、`down` 或 `disabled`。MinIO 对象存储也会以 `storage` 字段出现在 `/health`；生产环境只有 Postgres、Redis、MinIO 全部 ready 才返回 200。定时任务会清理过期 refresh token，并取消长时间未支付的订单。已完成评测还可以通过通知接口发送邮件摘要。
 
 ## 本轮重点加固
 
@@ -244,6 +247,7 @@ Redis 作为可选缓存层，用于套餐查询缓存，并在 `/health` 中暴
 详见 [docs/api-reference.md](docs/api-reference.md) 获取完整 curl 示例。
 若要看 API 全链路验证顺序、当前自动化覆盖范围，以及 mock / real provider 的边界，请看 [docs/api-verification.md](docs/api-verification.md)。
 若要执行浏览器侧的手工验收，请看 [docs/web-acceptance-checklist.md](docs/web-acceptance-checklist.md)。
+若要按生产 compose 发布、准备生产环境变量、执行迁移、做健康检查和回滚，请看 [docs/production-runbook.md](docs/production-runbook.md) 和 [.env.prod.example](.env.prod.example)。
 
 ## 常用命令
 
@@ -253,6 +257,10 @@ pnpm typecheck     # TypeScript 检查
 pnpm test          # 根级单元测试（shared + web + api-gateway）
 pnpm build         # 生产构建
 pnpm verify:local  # 完整本地门禁：lint -> typecheck -> test -> build -> api e2e
+pnpm init:prod-env # 创建 .env.prod 并生成本地密钥
+pnpm verify:prod   # 生产 compose + .env.prod 发布预检
+pnpm verify:prod:compose # 无 .env.prod 密钥时检查生产 compose/CI 门禁
+pnpm verify:prod:smoke   # 使用临时 env/certs 的 Docker 级生产 compose 冒烟
 pnpm verify:api:e2e        # API e2e，本地默认内存模式
 pnpm verify:api:e2e:realdb # API e2e，显式走真实 PostgreSQL
 pnpm infra:start   # 启动 Postgres + Redis + MinIO，并等待就绪
@@ -280,7 +288,7 @@ E2E_USE_REAL_DB=true pnpm test:e2e   # 显式切到真实 PostgreSQL 流程
 - 在仓库根目录执行 `pnpm build`。
 - 成功时尾部应看到：`Tasks: 3 successful, 3 total`。
 - 当前会构建 `@fluentops/shared`、`web`、`api-gateway` 三个包。
-- 当前前端生产构建仍会输出 Vite 的大 chunk 警告；这些警告不会导致构建失败，但仍是后续需要继续优化的事项。
+- 当前前端生产构建已将 Vue、Element Plus、Three.js、动效、HTTP 与业务代码拆分到独立 chunk；构建不再输出 Vite 大 chunk 警告。
 
 一键本地验证方式：
 

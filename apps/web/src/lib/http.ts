@@ -1,12 +1,15 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type { AuthTokens } from '@fluentops/shared';
 import { router } from '../router';
+import { authSession } from './authSession';
 
 export const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1',
   timeout: 30000,
   withCredentials: true,
 });
+
+export const REFRESH_TIMEOUT_MS = 5000;
 
 let refreshPromise: Promise<string> | null = null;
 
@@ -16,12 +19,12 @@ async function doRefresh(): Promise<string> {
     const { data } = await axios.post<AuthTokens>(
       `${baseURL}/auth/refresh`,
       {},
-      { withCredentials: true },
+      { withCredentials: true, timeout: REFRESH_TIMEOUT_MS },
     );
-    localStorage.setItem('accessToken', data.accessToken);
+    authSession.setAccessToken(data.accessToken);
     return data.accessToken;
   } catch (error) {
-    localStorage.removeItem('accessToken');
+    authSession.clearAccessToken();
     router.push('/login');
     throw error;
   }
@@ -29,7 +32,7 @@ async function doRefresh(): Promise<string> {
 
 // Request interceptor: attach access token
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
+  const token = authSession.getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -60,7 +63,7 @@ http.interceptors.response.use(
       originalRequest.headers.Authorization = `Bearer ${token}`;
       return http(originalRequest);
     } catch (refreshError) {
-      localStorage.removeItem('accessToken');
+      authSession.clearAccessToken();
       router.push('/login');
       return Promise.reject(refreshError);
     } finally {

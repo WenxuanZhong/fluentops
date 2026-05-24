@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { IsString, IsOptional, IsIn, validateSync } from 'class-validator';
 
@@ -51,6 +52,7 @@ class EnvVars {
   OPENAI_API_KEY?: string;
 
   @IsString()
+  @IsIn(['mock', 'openai'])
   AI_PROVIDER: string = 'mock';
 
   @IsString()
@@ -60,6 +62,7 @@ class EnvVars {
   AI_TEMPERATURE: string = '0.7';
 
   @IsString()
+  @IsIn(['mock', 'alipay'])
   BILLING_PROVIDER: string = 'mock';
 
   @IsString()
@@ -91,6 +94,7 @@ class EnvVars {
   ALIPAY_NOTIFY_URL?: string;
 
   @IsString()
+  @IsIn(['mock', 'resend'])
   EMAIL_PROVIDER: string = 'mock';
 
   @IsString()
@@ -185,6 +189,32 @@ export function validate(config: Record<string, unknown>) {
     }
     if (!validated.CORS_ORIGIN) {
       throw new Error('CORS_ORIGIN must be set in production');
+    }
+    if (!validated.CORS_ORIGIN.startsWith('https://')) {
+      throw new Error('CORS_ORIGIN must use https:// in production');
+    }
+    if (
+      validated.MINIO_PUBLIC_URL &&
+      !validated.MINIO_PUBLIC_URL.startsWith('https://')
+    ) {
+      throw new Error('MINIO_PUBLIC_URL must use https:// in production');
+    }
+    if (!validated.MINIO_PUBLIC_URL) {
+      throw new Error('MINIO_PUBLIC_URL must be set in production');
+    }
+    if (
+      validated.ALIPAY_NOTIFY_URL &&
+      !validated.ALIPAY_NOTIFY_URL.startsWith('https://')
+    ) {
+      throw new Error('ALIPAY_NOTIFY_URL must use https:// in production');
+    }
+    if (
+      validated.ALIPAY_NOTIFY_URL &&
+      !validated.ALIPAY_NOTIFY_URL.includes('/api/v1/billing/alipay/notify')
+    ) {
+      throw new Error(
+        'ALIPAY_NOTIFY_URL must target /api/v1/billing/alipay/notify in production',
+      );
     }
     if (!validated.REDIS_URL) {
       throw new Error('REDIS_URL must be set in production');

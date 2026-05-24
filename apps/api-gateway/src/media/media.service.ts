@@ -21,7 +21,7 @@ export class MediaService {
     const objectKey = `recordings/${userId}/${Date.now()}-${safeName}`;
     const uploadUrl = await this.minio.presignedPutUrl(objectKey);
     const fileUrl = this.buildFileUrl(objectKey);
-    return { uploadUrl, objectKey, fileUrl };
+    return { uploadUrl: this.rewritePresignedUrl(uploadUrl), objectKey, fileUrl };
   }
 
   async complete(userId: string, dto: CompleteUploadDto) {
@@ -97,12 +97,31 @@ export class MediaService {
     });
     if (!recording) throw new NotFoundException('Recording not found');
 
-    const playUrl = await this.minio.presignedGetUrl(recording.objectKey);
+    const playUrl = this.rewritePresignedUrl(await this.minio.presignedGetUrl(recording.objectKey));
     return { ...recording, playUrl };
   }
 
+  private rewritePresignedUrl(signedUrl: string): string {
+    const publicUrl = this.publicObjectBaseUrl();
+    if (!publicUrl) {
+      return signedUrl;
+    }
+
+    try {
+      const signed = new URL(signedUrl);
+      const target = new URL(`${publicUrl}/`);
+      const basePath = target.pathname.replace(/\/+$/, '');
+      target.pathname = `${basePath}/${signed.pathname.replace(/^\/+/, '')}`;
+      target.search = signed.search;
+      return target.toString();
+    } catch (error) {
+      this.logger.warn(`Could not rewrite presigned MinIO URL: ${error instanceof Error ? error.message : error}`);
+      return signedUrl;
+    }
+  }
+
   private buildFileUrl(objectKey: string): string {
-    const publicUrl = this.config.get('MINIO_PUBLIC_URL');
+    const publicUrl = this.publicObjectBaseUrl();
     if (publicUrl) {
       const bucket = this.config.get('MINIO_BUCKET', 'fluentops');
       return `${publicUrl}/${bucket}/${objectKey}`;
@@ -112,5 +131,13 @@ export class MediaService {
     const port = this.config.get('MINIO_PORT', '9000');
     const bucket = this.config.get('MINIO_BUCKET', 'fluentops');
     return `http://${endpoint}:${port}/${bucket}/${objectKey}`;
+  }
+
+  private publicObjectBaseUrl(): string | null {
+    const publicUrl = this.config.get<string>('MINIO_PUBLIC_URL');
+    if (!publicUrl) {
+      return null;
+    }
+    return publicUrl.replace(/\/+$/, '');
   }
 }

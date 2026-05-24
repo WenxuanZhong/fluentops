@@ -249,7 +249,7 @@ curl -X POST http://localhost:3000/api/v1/notifications/assessment-email \
 | `MINIO_ACCESS_KEY` | MinIO access key |
 | `MINIO_SECRET_KEY` | MinIO secret key |
 | `MINIO_BUCKET` | MinIO bucket name |
-| `MINIO_PUBLIC_URL` | Public URL for file access (optional) |
+| `MINIO_PUBLIC_URL` | Public HTTPS object URL base; with the bundled edge proxy use `/objects`, for example `https://app.example.com/objects` |
 
 ### AI Coach
 
@@ -269,7 +269,7 @@ curl -X POST http://localhost:3000/api/v1/notifications/assessment-email \
 | `ALIPAY_PRIVATE_KEY` | — | App private key (RSA2) |
 | `ALIPAY_PUBLIC_KEY` | — | Alipay public key |
 | `ALIPAY_GATEWAY` | sandbox URL | Alipay gateway endpoint |
-| `ALIPAY_NOTIFY_URL` | — | Public URL for async notifications |
+| `ALIPAY_NOTIFY_URL` | — | Public HTTPS callback URL, ending in `/api/v1/billing/alipay/notify` |
 
 ### Notifications
 

@@ -79,13 +79,14 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { useAuthStore } from '../stores/auth';
 
 const { t } = useI18n();
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 
 const formRef = ref<FormInstance>();
@@ -108,12 +109,21 @@ async function handleSubmit() {
   loading.value = true;
   try {
     await authStore.login(form.email, form.password);
-    router.push('/dashboard');
+    router.push(getRedirectPath());
   } catch (err: unknown) {
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || t('auth.loginFailed');
     ElMessage.error(msg);
   } finally {
     loading.value = false;
   }
+}
+
+function getRedirectPath() {
+  const redirect = route.query.redirect;
+  if (typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')) {
+    return redirect;
+  }
+
+  return '/dashboard';
 }
 </script>

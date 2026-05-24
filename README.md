@@ -115,8 +115,11 @@ Root workspace commands (`pnpm dev`, `pnpm lint`, `pnpm typecheck`, `pnpm test`,
 Tooling helpers:
 
 - `pnpm doctor:env` checks the pinned Node/pnpm contract, current OS/runtime details, Docker availability, and current-platform native frontend packages.
+- `pnpm init:prod-env` creates `.env.prod` from the production template with generated local secrets; public domains and provider credentials still need real values.
 - `pnpm toolchain:check` is the strict preflight used to enforce the same Node/pnpm contract in automation.
 - `pnpm verify:local` runs the full local gate in order: `lint -> typecheck -> test -> build -> api-gateway e2e`.
+- `pnpm verify:prod` checks the production compose and `.env.prod` release preflight; use `pnpm verify:prod:compose` when production secrets are unavailable.
+- `pnpm verify:prod:smoke` builds and starts the production compose stack with temporary secrets, self-signed TLS certs, isolated volumes, and high ports; it requires Docker and OpenSSL.
 - `pnpm verify:api:e2e` and `pnpm verify:api:e2e:realdb` give API-only verification entrypoints.
 - `pnpm infra:start|stop|reset|status|logs|wait` standardize local Postgres/Redis/MinIO lifecycle management.
 - `.nvmrc` and `.node-version` are set to `lts/*` so version managers pick the latest LTS by default. The `engines.node` contract is `>=20`.
@@ -170,7 +173,7 @@ A provider interface abstracts payment: `mock` for CI/dev (instant fulfillment),
 
 ### Realtime, Cache, and Automation
 
-Redis is used as an optional cache layer for plan lookups and surfaces in `/health` as `up`, `down`, or `disabled`. Scheduled maintenance jobs clean expired refresh tokens and cancel stale pending orders. Completed assessments can also be emailed through the notifications API.
+Redis is used as an optional cache layer for plan lookups and surfaces in `/health` as `up`, `down`, or `disabled`. MinIO object storage also surfaces in `/health` as `storage`; production health returns `503` unless Postgres, Redis, and MinIO are all ready. Scheduled maintenance jobs clean expired refresh tokens and cancel stale pending orders. Completed assessments can also be emailed through the notifications API.
 
 ## Recent Hardening
 
@@ -244,6 +247,7 @@ See [docs/audit-report.md](docs/audit-report.md) for the full security audit.
 See [docs/api-reference.md](docs/api-reference.md) for detailed curl examples.
 See [docs/api-verification.md](docs/api-verification.md) for the end-to-end verification order, current automated coverage, and mock-vs-real provider boundaries.
 See [docs/web-acceptance-checklist.md](docs/web-acceptance-checklist.md) for the manual browser acceptance pass.
+See [docs/production-runbook.md](docs/production-runbook.md) and [.env.prod.example](.env.prod.example) for the production compose release path, required environment file, migration step, health checks, and rollback notes.
 
 ## Commands
 
@@ -253,6 +257,10 @@ pnpm typecheck     # TypeScript check
 pnpm test          # Root unit test suite (shared + web + api-gateway)
 pnpm build         # Production build
 pnpm verify:local  # Full local gate: lint -> typecheck -> test -> build -> api e2e
+pnpm init:prod-env # Create .env.prod with generated local secrets
+pnpm verify:prod   # Production compose + .env.prod preflight
+pnpm verify:prod:compose # Production compose/CI preflight without .env.prod secrets
+pnpm verify:prod:smoke   # Docker-level production compose smoke with temp env/certs
 pnpm verify:api:e2e        # API e2e in local in-memory mode
 pnpm verify:api:e2e:realdb # API e2e against a real PostgreSQL path
 pnpm infra:start   # Start Postgres + Redis + MinIO and wait for readiness
@@ -280,7 +288,7 @@ Root build verification:
 - Run `pnpm build` from the repo root.
 - Expected successful tail output: `Tasks: 3 successful, 3 total`.
 - The run currently builds `@fluentops/shared`, `web`, and `api-gateway`.
-- The current web production build still emits Vite chunk-size warnings for the largest frontend bundles; those warnings do not fail the build, but they remain a follow-up optimization item.
+- The web production build now splits Vue, Element Plus, Three.js, motion, HTTP, and app code into separate chunks; the current build completes without Vite chunk-size warnings.
 
 One-click local verification:
 

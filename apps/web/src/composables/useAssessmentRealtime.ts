@@ -1,4 +1,5 @@
 import { http } from '../lib/http';
+import { authSession } from '../lib/authSession';
 
 type RealtimeCallbacks = {
   assessmentId: string;
@@ -102,7 +103,7 @@ export function useAssessmentRealtime() {
   async function stream(callbacks: RealtimeCallbacks) {
     stop();
 
-    const token = localStorage.getItem('accessToken');
+    const token = authSession.getAccessToken();
     if (!token) {
       await callbacks.onFallbackPoll();
       return;

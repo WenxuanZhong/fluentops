@@ -70,11 +70,13 @@ console.log('[verify-local] All local verification steps passed.');
 
 function runStep(command, args) {
   return new Promise((resolve) => {
+    const isWindows = process.platform === 'win32';
     const child = spawn(command, args, {
       cwd: repoRoot,
       env,
       stdio: 'inherit',
-      shell: false,
+      shell: isWindows,
+      windowsHide: true,
     });
 
     child.on('exit', (code, signal) => {

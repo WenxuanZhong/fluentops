@@ -114,6 +114,7 @@ dynamodb_local/
 .pnpm-bin/
 .local-bin/
 .local-logs/
+.local-prod-smoke/
 
 # Build outputs
 **/dist
@@ -141,6 +142,7 @@ dynamodb_local/
 # Environment files
 .env.*
 !.env.example
+!.env.prod.example
 
 # Lock files
 .~lock.*

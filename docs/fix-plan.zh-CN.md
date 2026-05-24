@@ -344,22 +344,25 @@ pnpm verify:local
 - `MediaService.complete` 多了 `findUnique` 调用；`media.service.spec.ts` 增加幂等与跨用户两条用例；`in-memory-prisma.ts` 补上 `recording.findUnique` 与 `deleteMany`
 - `ai-coach.controller.ts` 不再注入 `BillingService`，新增 `StreamQueryDto` 入参
 
-## 17. 本机验证局限
+## 17. 本机验证结果
 
-撰写本文档的本机环境存在以下限制，导致无法当场跑完 `pnpm verify:local`：
+2026-05-25 在本机 Windows / Node 22.19.0 / pnpm 9.15.4 环境下，已修复 Windows 启动 `.cmd` wrapper 时的 `spawn EINVAL` 问题：
 
-1. 本机 Node 版本是 22.19.0；旧契约固定为 Node 20.x（`package.json:engines.node="20"`、`.nvmrc=20`），现已放宽为 `>=20`，Node 22 已在工作区契约内。
-2. Windows + pnpm 软链 + Node 22 组合下，`tsc` 与 `vitest` 都无法通过 `node_modules/.bin` 的 shim 直接调用，主要表现为「Cannot find module …\node_modules\typescript\bin\tsc」。
-3. `pnpm exec` 也无法跨过同样的 shim 解析问题。
+- `scripts/verify-local.mjs` 在 Windows 下通过 shell 启动本地 `pnpm.cmd` wrapper。
+- `scripts/run-pnpm.mjs` 使用同样的 Windows 启动策略，避免子命令路径再次卡在 `.cmd` 解析上。
+- `pnpm verify:local` 已完整通过：`lint -> typecheck -> test -> build -> api-gateway e2e`。
 
-因此修复后的代码仅通过逐文件人工审查（含 import / 类型签名 / 方法调用一致性）来确认。建议用户在符合契约的环境（Node `>=20`，例如 Node 20.x 或 22.x；`corepack pnpm@9.15.4`）中运行：
+仍需注意两条非阻塞输出：
+
+1. `api-gateway` 单测会打印一次 `Health check DB probe failed`，这是主动覆盖数据库不可用分支的预期日志。
+2. `web` 生产构建仍会输出 Vite 大 chunk 警告，构建不失败，后续可作为前端性能优化项处理。
+
+当前完整验证命令：
 
 ```bash
-pnpm install                          # 重新生成 .bin shim
-pnpm doctor:env                       # 应当除了既有 dep audit 外全绿
-pnpm verify:local                     # 跑完 lint / typecheck / test / build / api e2e
+pnpm doctor:env
+pnpm verify:local
 pnpm --filter api-gateway prisma migrate deploy  # 应用新增的索引迁移
 ```
 
-E2E 与 typecheck 都覆盖到了改动的服务和控制器，应当能立即暴露任何手工审查遗漏的问题。
-
+E2E 与 typecheck 都覆盖到了本轮改动的服务、控制器和脚本启动通路。

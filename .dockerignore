@@ -1,0 +1,41 @@
+# Dependency and package-manager state
+node_modules
+**/node_modules
+.pnpm-store
+.pnpm-bin
+
+# Build outputs and caches
+dist
+**/dist
+.turbo
+.local-bin
+.local-logs
+.local-prod-smoke
+coverage
+*.tsbuildinfo
+
+# Local environment and secrets
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!.env.prod.example
+infra/nginx/certs
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+
+# VCS, editors, and OS files
+.git
+.github
+.claude
+.vscode
+.idea
+.DS_Store
+
+# Logs and diagnostics
+*.log
+report.*.json

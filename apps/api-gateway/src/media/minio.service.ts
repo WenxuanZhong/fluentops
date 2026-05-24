@@ -28,12 +28,19 @@ export class MinioService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      const exists = await this.client.bucketExists(this.bucket);
-      if (!exists) {
-        await this.client.makeBucket(this.bucket);
-      }
+      await this.ensureBucketExists();
     } catch (err) {
-      this.logger.warn('MinIO not available — skipped bucket init', err instanceof Error ? err.message : err);
+      this.logger.warn('MinIO not available - skipped bucket init', err instanceof Error ? err.message : err);
+    }
+  }
+
+  async getStatus(): Promise<'up' | 'down'> {
+    try {
+      await this.ensureBucketExists();
+      return 'up';
+    } catch (err) {
+      this.logger.warn(`MinIO health probe failed: ${err instanceof Error ? err.message : err}`);
+      return 'down';
     }
   }
 
@@ -51,5 +58,12 @@ export class MinioService implements OnModuleInit {
 
   async statObject(objectKey: string): Promise<Minio.BucketItemStat> {
     return this.client.statObject(this.bucket, objectKey);
+  }
+
+  private async ensureBucketExists(): Promise<void> {
+    const exists = await this.client.bucketExists(this.bucket);
+    if (!exists) {
+      await this.client.makeBucket(this.bucket);
+    }
   }
 }

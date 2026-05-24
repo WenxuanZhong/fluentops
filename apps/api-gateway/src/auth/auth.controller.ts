@@ -88,7 +88,7 @@ export class AuthController {
     if (token) {
       await this.authService.logout(token);
     }
-    res.clearCookie(REFRESH_COOKIE, this.refreshCookieOptions());
+    res.clearCookie(REFRESH_COOKIE, this.clearRefreshCookieOptions());
   }
 
   @Post('ws-ticket')
@@ -127,6 +127,13 @@ export class AuthController {
 
   private setRefreshCookie(res: Response, refreshToken: string) {
     res.cookie(REFRESH_COOKIE, refreshToken, this.refreshCookieOptions());
+  }
+
+  private clearRefreshCookieOptions(): CookieOptions {
+    const options = this.refreshCookieOptions();
+    delete options.maxAge;
+    delete options.expires;
+    return options;
   }
 }
 

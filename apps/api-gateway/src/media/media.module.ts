@@ -6,5 +6,6 @@ import { MinioService } from './minio.service';
 @Module({
   controllers: [MediaController],
   providers: [MediaService, MinioService],
+  exports: [MinioService],
 })
 export class MediaModule {}

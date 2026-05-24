@@ -92,7 +92,7 @@ describe('http client', () => {
     expect(postSpy).toHaveBeenCalledWith(
       'http://localhost:3000/api/v1/auth/refresh',
       {},
-      { withCredentials: true },
+      { withCredentials: true, timeout: 5000 },
     );
 
     resolveRefresh?.({

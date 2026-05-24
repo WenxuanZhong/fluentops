@@ -2,6 +2,7 @@ export type HealthResponse = {
   status: 'ok' | 'error';
   db: 'up' | 'down';
   redis?: 'up' | 'down' | 'disabled';
+  storage?: 'up' | 'down';
   uptime: number;
 };
 

@@ -1,4 +1,10 @@
-import { Injectable, OnModuleInit, BadRequestException, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Plan } from '@prisma/client';
 import { PrismaService } from '../prisma';
@@ -47,6 +53,10 @@ export class BillingService implements OnModuleInit {
   async createOrder(userId: string, planId: string, notifyUrl?: string) {
     const plan = await this.prisma.plan.findUniqueOrThrow({ where: { id: planId } });
     const provider = this.config.get<string>('BILLING_PROVIDER') || 'mock';
+    if (provider === 'alipay' && !this.alipayService.isEnabled()) {
+      throw new ServiceUnavailableException('Payment provider is not available');
+    }
+
     const order = await this.prisma.order.create({
       data: {
         userId,
@@ -56,15 +66,27 @@ export class BillingService implements OnModuleInit {
       },
     });
 
-    if (provider === 'alipay' && this.alipayService.isEnabled()) {
+    if (provider === 'alipay') {
       const totalAmount = (plan.priceCents / 100).toFixed(2);
-      const payUrl = await this.alipayService.createPagePayUrl(
-        order.id,
-        plan.name,
-        totalAmount,
-        notifyUrl || this.config.get<string>('ALIPAY_NOTIFY_URL') || '',
-      );
-      return { ...order, payUrl };
+      try {
+        const payUrl = await this.alipayService.createPagePayUrl(
+          order.id,
+          plan.name,
+          totalAmount,
+          notifyUrl || this.config.get<string>('ALIPAY_NOTIFY_URL') || '',
+        );
+        return { ...order, payUrl };
+      } catch (error) {
+        await this.prisma.order.update({
+          where: { id: order.id },
+          data: { status: 'CANCELLED' },
+        });
+        this.logger.error(
+          `Failed to create Alipay page pay URL for order ${order.id}`,
+          error instanceof Error ? error.stack : error,
+        );
+        throw new ServiceUnavailableException('Payment provider is not available');
+      }
     }
     return order;
   }

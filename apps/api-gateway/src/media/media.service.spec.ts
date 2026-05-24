@@ -8,6 +8,7 @@ import { PresignDto, CompleteUploadDto } from './dto';
 
 describe('MediaService', () => {
   let service: MediaService;
+  let configValues: Record<string, string>;
   let prisma: {
     recording: {
       create: jest.Mock;
@@ -24,6 +25,7 @@ describe('MediaService', () => {
   };
 
   beforeEach(async () => {
+    configValues = {};
     prisma = {
       recording: {
         create: jest.fn(),
@@ -44,7 +46,13 @@ describe('MediaService', () => {
         MediaService,
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
-        { provide: ConfigService, useValue: { get: (k: string, d?: string) => d ?? '' } },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: (key: string, defaultValue?: string) =>
+              configValues[key] ?? defaultValue ?? '',
+          },
+        },
       ],
     }).compile();
 
@@ -66,6 +74,20 @@ describe('MediaService', () => {
       const sanitized = namePart.substring(namePart.indexOf('-') + 1);
       expect(sanitized.length).toBeLessThanOrEqual(100);
     });
+
+    it('rewrites signed upload URLs to the public object proxy', async () => {
+      configValues.MINIO_PUBLIC_URL = 'https://app.example.com/objects';
+      minio.presignedPutUrl.mockResolvedValueOnce(
+        'http://minio:9000/fluentops/recordings/u1/file.webm?X-Amz-Signature=sig',
+      );
+      const dto = Object.assign(new PresignDto(), { filename: 'file.webm', contentType: 'audio/webm' });
+
+      const result = await service.presign('u1', dto);
+
+      expect(result.uploadUrl).toBe(
+        'https://app.example.com/objects/fluentops/recordings/u1/file.webm?X-Amz-Signature=sig',
+      );
+    });
   });
 
   describe('complete', () => {
@@ -85,6 +107,17 @@ describe('MediaService', () => {
           data: expect.objectContaining({ sizeBytes: 100 }),
         }),
       );
+    });
+
+    it('normalizes public file URLs when MINIO_PUBLIC_URL has a trailing slash', async () => {
+      configValues.MINIO_PUBLIC_URL = 'https://app.example.com/objects/';
+      const rec = { id: 'r1', objectKey: 'recordings/u1/file.webm', createdAt: new Date() };
+      prisma.recording.create.mockResolvedValue(rec);
+      const dto = Object.assign(new CompleteUploadDto(), { objectKey: 'recordings/u1/file.webm', mimeType: 'audio/webm', sizeBytes: 100 });
+
+      const result = await service.complete('u1', dto);
+
+      expect(result.url).toBe('https://app.example.com/objects/fluentops/recordings/u1/file.webm');
     });
 
     it('throws when uploaded object does not exist', async () => {
@@ -144,6 +177,20 @@ describe('MediaService', () => {
       prisma.recording.findFirst.mockResolvedValue({ id: 'r1', objectKey: 'recordings/u1/f.webm' });
       const result = await service.detail('u1', 'r1');
       expect(result.playUrl).toBe('http://minio/get');
+    });
+
+    it('rewrites signed playback URLs to the public object proxy', async () => {
+      configValues.MINIO_PUBLIC_URL = 'https://app.example.com/objects/';
+      minio.presignedGetUrl.mockResolvedValueOnce(
+        'http://minio:9000/fluentops/recordings/u1/f.webm?X-Amz-Signature=sig',
+      );
+      prisma.recording.findFirst.mockResolvedValue({ id: 'r1', objectKey: 'recordings/u1/f.webm' });
+
+      const result = await service.detail('u1', 'r1');
+
+      expect(result.playUrl).toBe(
+        'https://app.example.com/objects/fluentops/recordings/u1/f.webm?X-Amz-Signature=sig',
+      );
     });
   });
 });

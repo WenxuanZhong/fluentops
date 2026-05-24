@@ -135,3 +135,27 @@ jobs:
           MODEL_NAME: gpt-4o-mini
           AI_TEMPERATURE: "0.7"
           BILLING_PROVIDER: mock
+
+  production-ready:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DOCKER_BUILDKIT: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Verify production compose contract
+        run: node ./scripts/verify-prod.mjs --compose-only
+
+      - name: Render production compose config
+        run: docker compose -f infra/docker-compose.prod.yml --env-file .env.prod.example config > /tmp/fluentops-compose.yml
+
+      - name: Smoke test production compose
+        run: node ./scripts/prod-smoke.mjs --timeout-ms 420000

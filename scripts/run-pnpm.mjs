@@ -35,6 +35,7 @@ const pnpmBin = process.platform === 'win32'
   ? join(repoRoot, '.pnpm-bin', 'pnpm.cmd')
   : join(repoRoot, '.pnpm-bin', 'pnpm');
 
+const isWindows = process.platform === 'win32';
 const child = spawn(pnpmBin, args, {
   cwd: repoRoot,
   env: {
@@ -42,7 +43,8 @@ const child = spawn(pnpmBin, args, {
     ...extraEnv,
   },
   stdio: 'inherit',
-  shell: false,
+  shell: isWindows,
+  windowsHide: true,
 });
 
 child.on('exit', (code, signal) => {

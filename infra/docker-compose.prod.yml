@@ -1,14 +1,20 @@
 # Production-grade compose for fluentops.
 # IMPORTANT — before running:
-#   1. Copy .env.example to .env.prod and fill in every required value.
+#   1. Copy .env.prod.example to .env.prod and fill in every required value.
 #   2. Provide TLS certs at infra/nginx/certs/{fullchain,privkey}.pem (or front this
 #      stack with Cloudflare/ALB and use infra/nginx/edge.conf.example without TLS).
-#   3. `docker compose -f infra/docker-compose.prod.yml --env-file .env.prod up -d`
+#   3. `docker compose -f infra/docker-compose.prod.yml --env-file .env.prod up -d --build`
 #
 # Differences from infra/docker-compose.yml (dev):
 #   - No host port exposure for postgres/redis/minio — internal network only.
 #   - All credentials sourced from env, no defaults.
 #   - api-gateway and web are built from this repo and live behind nginx edge proxy.
+
+x-api-gateway-image: &api-gateway-image fluentops-api-gateway:${FLUENTOPS_IMAGE_TAG:-local}
+x-api-gateway-build: &api-gateway-build
+  context: ..
+  dockerfile: apps/api-gateway/Dockerfile
+x-web-image: &web-image fluentops-web:${FLUENTOPS_IMAGE_TAG:-local}
 
 services:
   postgres:
@@ -47,25 +53,56 @@ services:
     command: server /data
     volumes:
       - minio_data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    networks: [internal, edge]
+
+  minio-ready:
+    image: ${CURL_IMAGE:-curlimages/curl:8.11.1}
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_started
+    command:
+      - --retry
+      - "90"
+      - --retry-all-errors
+      - --retry-delay
+      - "2"
+      - --max-time
+      - "5"
+      - -fsS
+      - http://minio:9000/minio/health/live
+    networks: [internal]
+
+  migrate:
+    image: *api-gateway-image
+    build: *api-gateway-build
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+    command:
+      - ./apps/api-gateway/node_modules/.bin/prisma
+      - migrate
+      - deploy
+      - --schema
+      - apps/api-gateway/prisma/schema.prisma
     networks: [internal]
 
   api-gateway:
-    build:
-      context: ..
-      dockerfile: apps/api-gateway/Dockerfile
+    image: *api-gateway-image
+    build: *api-gateway-build
     restart: unless-stopped
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio-ready:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
@@ -100,6 +137,7 @@ services:
     networks: [internal, edge]
 
   web:
+    image: *web-image
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
@@ -111,18 +149,24 @@ services:
   edge:
     image: nginx:1.27-alpine
     restart: unless-stopped
-    depends_on: [api-gateway, web]
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      web:
+        condition: service_healthy
     ports:
-      - "80:80"
-      - "443:443"
+      - "${EDGE_HTTP_PORT:-80}:80"
+      - "${EDGE_HTTPS_PORT:-443}:443"
     volumes:
       - ./nginx/edge.conf.example:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
+      - ${NGINX_CERTS_DIR:-./nginx/certs}:/etc/nginx/certs:ro
     networks: [edge]
 
 volumes:
   pg_data:
+    name: ${FLUENTOPS_VOLUME_PREFIX:-fluentops}_pg_data
   minio_data:
+    name: ${FLUENTOPS_VOLUME_PREFIX:-fluentops}_minio_data
 
 networks:
   internal:

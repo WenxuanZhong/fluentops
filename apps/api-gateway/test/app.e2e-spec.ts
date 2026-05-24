@@ -36,6 +36,7 @@ describe('App (e2e)', () => {
         presignedGetUrl: async () => 'http://localhost:9000/fake-get-url',
         deleteObject: async () => {},
         statObject: async () => ({ size: 12345 }),
+        getStatus: async () => 'up',
       })
       .overrideProvider(APP_GUARD)
       .useValue({ canActivate: () => true });
@@ -86,14 +87,16 @@ describe('App (e2e)', () => {
     let accessToken: string;
     let refreshCookie: string;
 
-    const extractRefreshCookie = (res: Response): string | null => {
+    const getRefreshSetCookie = (res: Response): string | null => {
       const setCookie = res.headers['set-cookie'];
       const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
-      for (const raw of cookies) {
-        const match = /fo_refresh=([^;]+)/.exec(raw);
-        if (match) return match[0];
-      }
-      return null;
+      return cookies.find((raw) => raw.startsWith('fo_refresh=')) ?? null;
+    };
+
+    const extractRefreshCookie = (res: Response): string | null => {
+      const raw = getRefreshSetCookie(res);
+      const match = raw ? /fo_refresh=([^;]+)/.exec(raw) : null;
+      return match ? match[0] : null;
     };
 
     it('POST /api/v1/auth/register', async () => {
@@ -154,10 +157,15 @@ describe('App (e2e)', () => {
     });
 
     it('POST /api/v1/auth/logout clears cookie', async () => {
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .post('/api/v1/auth/logout')
         .set('Cookie', refreshCookie)
         .expect(204);
+
+      const clearedCookie = getRefreshSetCookie(res);
+      expect(clearedCookie).not.toBeNull();
+      expect(clearedCookie).toMatch(/^fo_refresh=;/);
+      expect(clearedCookie).not.toMatch(/Max-Age=604800/i);
     });
 
     it('POST /api/v1/auth/refresh with revoked cookie fails', async () => {
