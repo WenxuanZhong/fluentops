@@ -289,7 +289,7 @@ function run(command, commandArgs, options = {}) {
 
 function dumpComposeDiagnostics() {
   compose(['ps', '-a'], { allowFailure: true });
-  compose(['logs', '--tail=200', 'migrate', 'api-gateway', 'edge', 'postgres', 'redis', 'minio', 'minio-ready'], {
+  compose(['logs', '--tail=200', 'migrate', 'api-gateway', 'web', 'edge', 'postgres', 'redis', 'minio', 'minio-ready'], {
     allowFailure: true,
   });
 }

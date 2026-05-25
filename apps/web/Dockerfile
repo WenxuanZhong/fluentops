@@ -27,4 +27,5 @@ FROM nginx:1.27-alpine AS runtime
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
 COPY infra/nginx/web.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://localhost/healthz || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=6 \
+  CMD wget --spider -q -T 4 http://127.0.0.1/healthz || exit 1
